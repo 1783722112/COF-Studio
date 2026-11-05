@@ -765,12 +765,26 @@ python -m pip install numpy ase torch mace-torch torch-dftd matplotlib scipy</co
       </div>
       <div class="row">
         <div class="field">
-          <label><span data-i18n="xrd.size">晶粒尺寸</span> <span class="hint">nm（0 = 无限大）</span></label>
+          <label><span data-i18n="xrd.size">晶粒尺寸</span> <span class="hint" data-i18n="xrd.sizeHint">nm（0 = 无限大）</span></label>
           <input type="number" id="xrdSize" value="20" step="1" min="0" max="5000">
+        </div>
+        <div class="field">
+          <label><span data-i18n="xrd.b">温度因子 B</span> <span class="hint">Å²</span></label>
+          <input type="number" id="xrdB" value="2.0" step="0.5" min="0" max="20">
+        </div>
+        <div class="field">
+          <label><span data-i18n="xrd.dstack">层间距 d</span> <span class="hint" data-i18n="xrd.dstackHint">Å（压真空用）</span></label>
+          <input type="number" id="xrdD" value="3.60" step="0.05" min="2.5" max="8">
         </div>
         <div class="field" style="flex:0 0 150px;display:flex;align-items:flex-end">
           <button class="btn btn-primary" id="xrdGo" style="width:100%" data-i18n="xrd.recalc">重新计算</button>
         </div>
+      </div>
+      <div class="row" style="margin-top:-4px">
+        <label class="chk" style="margin-bottom:8px">
+          <input type="checkbox" id="xrdFixVac" checked>
+          <span data-i18n="xrd.fixVac">真空层胞按 AA 堆叠压回（推荐）</span>
+        </label>
       </div>
       <div id="xrdMsg" class="note hidden"></div>
       <div class="xrd-wrap"><div id="xrdChart"></div></div>
@@ -860,6 +874,9 @@ const I18N = {
     "xrd.btn": "XRD 图谱", "xrd.title": "XRD 图谱", "xrd.target": "靶材 / 波长",
     "xrd.start": "2θ 起点", "xrd.end": "2θ 终点", "xrd.step": "步长",
     "xrd.size": "晶粒尺寸", "xrd.recalc": "重新计算", "xrd.calc": "计算中…",
+    "xrd.b": "温度因子 B", "xrd.dstack": "层间距 d",
+    "xrd.sizeHint": "nm（0 = 无限大）", "xrd.dstackHint": "Å（压真空用）",
+    "xrd.fixVac": "真空层胞按 AA 堆叠压回（推荐）", "xrd.warn": "提示：{m}",
     "xrd.fail": "计算失败：{e}", "xrd.noPeak": "这个范围内没有衍射峰",
     "xrd.info": "{n} 原子 · {h} 个反射 · {t}s · a = {a} Å",
     "xrd.log": "XRD：{f} · {h} 个反射 · {t}s",
@@ -1036,6 +1053,9 @@ const I18N = {
     "xrd.btn": "XRD pattern", "xrd.title": "XRD pattern", "xrd.target": "Radiation",
     "xrd.start": "2θ start", "xrd.end": "2θ end", "xrd.step": "Step",
     "xrd.size": "Crystallite size", "xrd.recalc": "Recalculate", "xrd.calc": "Calculating…",
+    "xrd.b": "Thermal B", "xrd.dstack": "Layer gap d",
+    "xrd.sizeHint": "nm (0 = infinite)", "xrd.dstackHint": "Å (for vacuum fix)",
+    "xrd.fixVac": "Compress vacuum slab to AA stacking (recommended)", "xrd.warn": "Note: {m}",
     "xrd.fail": "Failed: {e}", "xrd.noPeak": "No reflection in this range",
     "xrd.info": "{n} atoms · {h} reflections · {t}s · a = {a} Å",
     "xrd.log": "XRD: {f} · {h} reflections · {t}s",
@@ -1812,6 +1832,9 @@ async function runXrd() {
     tth_max: +$("#xrdT1").value,
     step: +$("#xrdStep").value,
     size: +$("#xrdSize").value,
+    b_iso: +$("#xrdB").value,
+    d_stack: +$("#xrdD").value,
+    fix_vac: $("#xrdFixVac").checked,
   };
   try {
     const r = await fetch("/api/xrd", {
@@ -1826,6 +1849,8 @@ async function runXrd() {
     S.xrd = d;
     $("#xrdChart").innerHTML = xrdSvg(d);
     xrdTable(d);
+    const ws = (d.warn || []).join("；");
+    xrdSay(ws ? t("xrd.warn", {m: ws}) : "", ws ? "warn" : "");
     $("#xrdInfo").textContent = t("xrd.info", {
       n: d.n_atoms, h: d.n_hkl, t: d.elapsed, a: (d.cell ? d.cell[0].toFixed(2) : "—")
     });
@@ -1842,10 +1867,10 @@ $("#xrdGo").onclick = () => runXrd();
 function xrdTable(d) {
   const rows = (d.peaks || []).slice(0, 30).map(p =>
     `<tr><td>${p.tth.toFixed(2)}</td><td>${p.d.toFixed(3)}</td>
-      <td>(${p.hkl.join(" ")})</td><td>${p.I.toFixed(1)}</td></tr>`).join("");
+      <td>(${p.hkl.join(" ")})</td><td>${p.m || 1}</td><td>${p.I.toFixed(1)}</td></tr>`).join("");
   $("#xrdTbl").innerHTML =
-    `<thead><tr><th>2θ (°)</th><th>d (Å)</th><th>hkl</th><th>I (%)</th></tr></thead>
-     <tbody>${rows || `<tr><td colspan="4">${t("xrd.noPeak")}</td></tr>`}</tbody>`;
+    `<thead><tr><th>2θ (°)</th><th>d (Å)</th><th>hkl</th><th>m</th><th>I (%)</th></tr></thead>
+     <tbody>${rows || `<tr><td colspan="5">${t("xrd.noPeak")}</td></tr>`}</tbody>`;
 }
 
 function niceStep(raw) {

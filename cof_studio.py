@@ -172,7 +172,7 @@ DEFAULT_CONFIG = {
     "update_url": "https://github.com/1783722112/COF-Studio/releases/latest/download",
 }
 
-APP_VERSION = "1.3.1"
+APP_VERSION = "1.3.2"
 
 # 这几个才是路径，load_config 的"路径还活着吗"自愈只该管它们。
 PATH_KEYS = ("engine_build_3d", "engine_build_2d", "engine_opt", "engine_stack",
@@ -1200,10 +1200,18 @@ def run_xrd(params: dict) -> dict:
     if (t1 - t0) / step > 20000:
         return {"ok": False, "error": "步长太小（超过 2 万个点），调大一点"}
     size = num("size", 20.0, 0.0, 5000.0)
+    b_iso = num("b_iso", 2.0, 0.0, 30.0)
+    d_stack = num("d_stack", 3.60, 2.0, 10.0)
+    fix_vac = params.get("fix_vac", True)
+    if isinstance(fix_vac, str):
+        fix_vac = fix_vac.lower() not in ("0", "false", "no", "off")
 
     cmd = xrd_cmd(["--cif", str(p), "--wl", f"{wl:.5f}",
                    "--tth-min", f"{t0:.3f}", "--tth-max", f"{t1:.3f}",
-                   "--step", f"{step:.4f}", "--size", f"{size:.1f}"])
+                   "--step", f"{step:.4f}", "--size", f"{size:.1f}",
+                   "--b", f"{b_iso:.2f}", "--d-stack", f"{d_stack:.2f}"])
+    if not fix_vac:
+        cmd.append("--no-fix-vacuum")
     t_start = time.time()
     try:
         rc, log = _run_sync(cmd, ENGINES, timeout=600)

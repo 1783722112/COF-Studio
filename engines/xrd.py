@@ -104,37 +104,105 @@ def _pseudo_voigt(x, x0, fwhm, eta=0.5):
     return eta * lz + (1.0 - eta) * gl
 
 
-def powder_pattern(cif: str | Path, wl: float = 1.54056,
-                   tth_min: float = 2.0, tth_max: float = 40.0,
-                   step: float = 0.02, size_nm: float = 20.0,
-                   b_iso: float = 1.0, eta: float = 0.5,
-                   inst_fwhm: float = 0.10) -> dict:
-    """算一张粉末 XRD 图谱。size_nm 指相干散射区尺寸（Scherrer），inf 表示无限大。"""
-    from ase.io import read
+# --------------------------------------------------------------------------
+# 晶胞自检
+# --------------------------------------------------------------------------
+def axis_geometry(atoms) -> list:
+    """每个晶轴方向：轴长、最大空隙（真空）、层厚、次大空隙（都是 Å）。"""
+    cell = np.array(atoms.cell, dtype=float)
+    frac = np.array(atoms.get_scaled_positions(wrap=True), dtype=float)
+    out = []
+    for i in range(3):
+        L = float(np.linalg.norm(cell[i]))
+        s = np.sort(frac[:, i])
+        if s.size < 2:
+            out.append({"len": L, "void": L, "thick": 0.0, "second": 0.0})
+            continue
+        gaps = np.diff(np.concatenate([s, [s[0] + 1.0]]))
+        k = int(np.argmax(gaps))
+        second = float(np.sort(gaps)[-2]) * L
+        out.append({"len": L, "void": float(gaps[k]) * L,
+                    "thick": float((1.0 - gaps[k]) * L), "second": second})
+    return out
 
-    atoms = read(str(cif))
-    cell = np.array(atoms.cell, dtype=float)          # 行向量 a, b, c
+
+def fix_vacuum(atoms, d_stack: float = 3.60, min_void: float = 6.0):
+    """把「单层 + 真空」的胞压回 AA 堆叠的晶胞：c = 层厚 + d_stack。
+
+    为什么必须压：单层模型里 c 是人为加长的，倒格矢 1/c 也跟着变，
+    (00l) 会跑到很低的角上去，还会把真正的 (hk0) 强峰压掉。
+    判据三条 —— c 向空隙 > 6 Å（真空）、没有第二个大空隙（否则是多孔骨架，
+    不能当板层）、c 垂直于 a/b。任一不满足就原样返回，不动结构。
+    """
+    info = axis_geometry(atoms)
+    g = info[2]
+    if g["void"] < min_void or g["second"] > 2.0:
+        return None
+    cell = np.array(atoms.cell, dtype=float)
+    na, nb, nc = (float(np.linalg.norm(cell[j])) for j in range(3))
+    if abs(np.dot(cell[2], cell[0])) > 0.02 * na * nc:
+        return None
+    if abs(np.dot(cell[2], cell[1])) > 0.02 * nb * nc:
+        return None
+    if abs(cell[2][0]) > 0.05 or abs(cell[2][1]) > 0.05:
+        return None
+
+    new = atoms.copy()
+    new.positions[:, 2] = new.positions[:, 2] - new.positions[:, 2].min()
+    thick = float(new.positions[:, 2].max())
+    c_new = thick + d_stack
+    cell[2] = [0.0, 0.0, c_new]
+    new.set_cell(cell, scale_atoms=False)
+    return new, {"void": round(g["void"], 2), "thickness": round(thick, 2),
+                 "c_before": round(float(np.linalg.norm(atoms.cell[2])), 3),
+                 "c_after": round(c_new, 3), "d_stack": float(d_stack)}
+
+
+def lowest_reflection(cell, wl: float, rng: int = 3):
+    """最低角的那条反射（即最大的 d）。用来判断 2θ 起点会不会把最强峰切掉。"""
+    rec = np.linalg.inv(np.array(cell, dtype=float)).T
+    best_hkl, best_d = None, 0.0
+    for h in range(-rng, rng + 1):
+        for k in range(-rng, rng + 1):
+            for l in range(-rng, rng + 1):
+                if h == 0 and k == 0 and l == 0:
+                    continue
+                d = 1.0 / float(np.linalg.norm(np.array([h, k, l], dtype=float) @ rec))
+                if d > best_d:
+                    best_hkl, best_d = (h, k, l), d
+    if best_d <= 0:
+        return None, None
+    s = wl / (2.0 * best_d)
+    if s >= 1.0:
+        return None, best_d
+    return 2.0 * math.degrees(math.asin(s)), best_d
+
+
+# --------------------------------------------------------------------------
+# 主计算
+# --------------------------------------------------------------------------
+def _compute(atoms, wl, tth_min, tth_max, step, size_nm, b_iso, eta, inst_fwhm) -> dict:
+    cell = np.array(atoms.cell, dtype=float)           # 行向量 a, b, c
     frac = np.array(atoms.get_scaled_positions(wrap=True), dtype=float)
     syms = atoms.get_chemical_symbols()
     if len(syms) == 0:
         raise RuntimeError("结构里没有原子")
 
     # 倒格矢（不做 2π，d = 1/|g| 用晶体学约定）
-    inv = np.linalg.inv(cell)                          # 列向量基 → 倒数
-    rec = inv.T                                        # rec[i] 是第 i 个倒格矢
+    rec = np.linalg.inv(cell).T                        # rec[i] 是第 i 个倒格矢
 
     tth = np.arange(tth_min, tth_max + step * 0.5, step)
     if tth.size < 2:
         raise RuntimeError("2θ 范围太窄")
-    th = np.radians(tth) / 2.0
     d_min = wl / (2.0 * math.sin(math.radians(tth_max) / 2.0))
     d_min = max(d_min, 0.55)
 
-    # ---- hkl 搜索范围：|h| ≤ a_perp / d_min ----
+    # ---- hkl 搜索范围：|h| ≤ a / d_min ----
     lens = np.linalg.norm(cell, axis=1)
     hmax = int(math.ceil(lens[0] / d_min)) + 1
     kmax = int(math.ceil(lens[1] / d_min)) + 1
     lmax = int(math.ceil(lens[2] / d_min)) + 1
+    capped = max(hmax, kmax, lmax) > 60
     hmax, kmax, lmax = min(hmax, 60), min(kmax, 60), min(lmax, 60)
 
     rng = [np.arange(-n, n + 1) for n in (hmax, kmax, lmax)]
@@ -164,9 +232,9 @@ def powder_pattern(cif: str | Path, wl: float = 1.54056,
 
     phase = 2.0 * np.pi * (hkl @ frac.T)               # (nhkl, natom)
     F = np.zeros(len(hkl), dtype=complex)
-    for u in uniq:
-        m = inv_idx == list(uniq).index(u)
-        F += fs[u] * (np.exp(1j * phase[:, m]).sum(axis=1))
+    for i, u in enumerate(uniq):
+        m = inv_idx == i
+        F += fs[u] * np.exp(1j * phase[:, m]).sum(axis=1)
     F *= dw
     I = np.abs(F) ** 2
 
@@ -196,25 +264,42 @@ def powder_pattern(cif: str | Path, wl: float = 1.54056,
         raise RuntimeError("算出来全是零强度")
     y = y / y.max() * 100.0
 
-    # ---- 峰表：按 d 归并等价反射 ----
-    order = np.argsort(-I)
-    peaks, used = [], []
+    # ---- 峰表：按 d 归并简并反射，强度按整个晶面族求和 ----
+    # （只取族里最强的一条会让 (220)/(311) 这类高多重度峰被严重低估）
+    order = np.argsort(dsp)
+    groups = []
     for i in order:
-        d = dsp[i]
-        if I[i] / I.max() * 100.0 < 0.05:      # 完全消光的反射不进峰表
+        d = float(dsp[i])
+        tol = max(1e-3, d * 6e-4)
+        if groups and abs(d - groups[-1]["d"]) <= tol:
+            g = groups[-1]
+            g["I"] += float(I[i])
+            g["m"] += 1
+            if I[i] > g["Ibest"]:
+                g["Ibest"] = float(I[i])
+                g["hkl"] = [int(v) for v in hkl[i]]
+                g["tth"] = float(tth_hkl[i])
+        else:
+            groups.append({"d": d, "I": float(I[i]), "m": 1,
+                           "Ibest": float(I[i]),
+                           "hkl": [int(v) for v in hkl[i]],
+                           "tth": float(tth_hkl[i])})
+
+    imax = max(g["I"] for g in groups)
+    peaks = []
+    for g in sorted(groups, key=lambda g: -g["I"]):
+        rel = g["I"] / imax * 100.0
+        if rel < 0.05:                 # 完全消光/极弱的反射不进峰表
             break
-        if any(abs(d - u) < max(2e-3, d * 2e-3) for u in used):
-            continue
-        used.append(d)
-        peaks.append({
-            "tth": round(float(tth_hkl[i]), 3),
-            "d": round(float(d), 4),
-            "hkl": [int(v) for v in hkl[i]],
-            "I": round(float(I[i] / I.max() * 100.0), 2),
-        })
+        peaks.append({"tth": round(g["tth"], 3), "d": round(g["d"], 4),
+                      "hkl": g["hkl"], "I": round(rel, 2), "m": g["m"]})
         if len(peaks) >= 60:
             break
     peaks.sort(key=lambda p: p["tth"])
+
+    warn = []
+    if capped:
+        warn.append("晶胞较大，hkl 搜索被截断，高角部分可能缺反射")
 
     return {
         "ok": True,
@@ -226,7 +311,59 @@ def powder_pattern(cif: str | Path, wl: float = 1.54056,
         "n_atoms": int(len(syms)),
         "cell": [round(float(v), 4) for v in lens],
         "formula": atoms.get_chemical_formula(),
+        "tth_min_used": float(tth[0]),
+        "b_iso": b_iso,
+        "warn": warn,
     }
+
+
+def powder_pattern(cif: str | Path, wl: float = 1.54056,
+                   tth_min: float = 2.0, tth_max: float = 40.0,
+                   step: float = 0.02, size_nm: float = 20.0,
+                   b_iso: float = 2.0, eta: float = 0.5,
+                   inst_fwhm: float = 0.10, d_stack: float = 3.60,
+                   fix_vac: bool = True, auto_extend: bool = True) -> dict:
+    """算一张粉末 XRD 图谱。size_nm 指相干散射区尺寸（Scherrer），0 表示无限大。"""
+    from ase.io import read
+
+    atoms = read(str(cif))
+    warn, vac = [], None
+
+    if fix_vac:
+        r = fix_vacuum(atoms, d_stack)
+        if r:
+            atoms, vac = r
+            warn.append("原胞沿 c 有 %.1f Å 真空（单层模型），已按 AA 堆叠 "
+                        "d = %.2f Å 压回 c = %.2f Å 计算"
+                        % (vac["void"], vac["d_stack"], vac["c_after"]))
+
+    res = _compute(atoms, wl, tth_min, tth_max, step, size_nm, b_iso, eta, inst_fwhm)
+
+    low_tth, low_d = lowest_reflection(atoms.cell, wl)
+    if low_tth is not None and low_tth < tth_min - 0.15:
+        msg = "最低角反射在 2θ = %.2f°（d = %.2f Å），比起点 %.1f° 还小" % (
+            low_tth, low_d, tth_min)
+        if auto_extend:
+            t0 = max(0.5, low_tth - 0.6)
+            alt = _compute(atoms, wl, t0, tth_max, step, size_nm, b_iso, eta, inst_fwhm)
+            xa, ya = np.array(alt["tth"]), np.array(alt["I"])
+            low_part = ya[xa < tth_min - 0.01]
+            in_part = ya[xa >= tth_min - 0.01]
+            # 两者各自归一化到 100，所以要在同一张图里比：
+            # 低角段是不是压过了起点之后的最高峰
+            if (low_part.size and in_part.size
+                    and low_part.max() > 1.05 * in_part.max()):
+                alt["warn"].insert(0, msg + "，已自动把起点下探到 %.1f°" % t0)
+                res = alt
+            else:
+                res["warn"].append(msg + "，但该反射很弱，不影响图谱")
+        else:
+            res["warn"].append(msg + "，低角信息被截断")
+
+    res["warn"] = warn + res["warn"]
+    if vac:
+        res["vacuum"] = vac
+    return res
 
 
 def main() -> None:
@@ -239,9 +376,15 @@ def main() -> None:
     ap.add_argument("--tth-max", type=float, default=40.0)
     ap.add_argument("--step", type=float, default=0.02)
     ap.add_argument("--size", type=float, default=20.0, help="晶粒尺寸 nm，0=无限大")
-    ap.add_argument("--b", type=float, default=1.0, help="各向同性温度因子 Å²")
+    ap.add_argument("--b", type=float, default=2.0, help="各向同性温度因子 Å²")
     ap.add_argument("--eta", type=float, default=0.5, help="伪 Voigt 洛伦兹占比")
     ap.add_argument("--inst", type=float, default=0.10, help="仪器展宽 FWHM（度）")
+    ap.add_argument("--d-stack", type=float, default=3.60,
+                    help="真空层胞压回 AA 堆叠时的层间距 Å（默认 3.60，与建模一致）")
+    ap.add_argument("--no-fix-vacuum", action="store_true",
+                    help="保留原胞的真空层，不做 AA 压缩")
+    ap.add_argument("--no-extend", action="store_true",
+                    help="2θ 起点不够低时不要自动下探")
     ap.add_argument("--csv", default=None)
     ap.add_argument("--json", default=None)
     a = ap.parse_args()
@@ -249,7 +392,9 @@ def main() -> None:
     wl = a.wl if a.wl else TARGETS[a.target][1]
     try:
         r = powder_pattern(a.cif, wl, a.tth_min, a.tth_max, a.step,
-                           a.size, a.b, a.eta, a.inst)
+                           a.size, a.b, a.eta, a.inst,
+                           d_stack=a.d_stack, fix_vac=not a.no_fix_vacuum,
+                           auto_extend=not a.no_extend)
     except Exception as e:
         print(json.dumps({"ok": False, "error": f"{type(e).__name__}: {e}"},
                          ensure_ascii=False))
