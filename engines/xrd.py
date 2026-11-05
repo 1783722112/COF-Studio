@@ -126,36 +126,146 @@ def axis_geometry(atoms) -> list:
     return out
 
 
-def fix_vacuum(atoms, d_stack: float = 3.60, min_void: float = 6.0):
-    """把「单层 + 真空」的胞压回 AA 堆叠的晶胞：c = 层厚 + d_stack。
+def _split_layers(atoms, tol: float = 1.5) -> list:
+    """按 z 方向把原子切成一层层（相邻 z 落差 > tol 就算换层）。"""
+    z = atoms.positions[:, 2]
+    order = np.argsort(z)
+    zs = z[order]
+    out, start = [], 0
+    for i in range(1, len(zs)):
+        if zs[i] - zs[i - 1] > tol:
+            out.append(order[start:i])
+            start = i
+    out.append(order[start:])
+    return [np.asarray(idx, dtype=int) for idx in out]
 
-    为什么必须压：单层模型里 c 是人为加长的，倒格矢 1/c 也跟着变，
-    (00l) 会跑到很低的角上去，还会把真正的 (hk0) 强峰压掉。
-    判据三条 —— c 向空隙 > 6 Å（真空）、没有第二个大空隙（否则是多孔骨架，
-    不能当板层）、c 垂直于 a/b。任一不满足就原样返回，不动结构。
+
+def _same_layer(atoms, ia, ib, tol: float = 0.20) -> bool:
+    """两层是不是「平移等价」：面内分数坐标能一一对上（同一晶格平移）。"""
+    if len(ia) != len(ib):
+        return False
+    sym = np.array(atoms.get_chemical_symbols())
+    if sorted(sym[ia]) != sorted(sym[ib]):
+        return False
+    frac = atoms.get_scaled_positions(wrap=True)
+    cell = np.array(atoms.cell, dtype=float)
+    a2 = np.array([cell[0][:2], cell[1][:2]])          # 面内基矢
+    fa, fb = frac[ia][:, :2], frac[ib][:, :2]
+    d = fb[:, None, :] - fa[None, :, :]
+    d -= np.round(d)                                    # 最小镜像（分数坐标）
+    dist = np.linalg.norm(d @ a2, axis=2)
+    ok_a = np.zeros(len(ia), dtype=bool)                 # b 里每个原子都能在 a 里找到
+    ok_a = dist.min(axis=1) < tol
+    ok_b = dist.min(axis=0) < tol
+    return bool(ok_a.all() and ok_b.all())
+
+
+def _bonds_cross_c(atoms, cut: float = 1.9) -> bool:
+    """沿 c 的周期性方向上有没有成键跨过胞壁。有 = 三维骨架，别乱压。"""
+    from ase.neighborlist import neighbor_list
+    try:
+        _i, _j, S = neighbor_list("ijS", atoms, cut)
+    except Exception:
+        return True
+    if len(S) == 0:
+        return False
+    return bool(np.any(S[:, 2] != 0))
+
+
+def normalize_cell(atoms, d_stack: float = 3.60, min_void: float = 4.0):
+    """把「超胞 / 带真空的板层」约化到真实的层间周期，专供 XRD 用。
+
+    一个 COF 的模型文件常见三种非晶体学写法，直接拿去算衍射都会错：
+
+    1. 单层 + 20~30 Å 真空（优化器给二维体系加真空后的默认输出）
+       → c 被人为拉长，倒格矢 1/c 跟着变小，(00l) 挤到低角，
+         真实的最强峰 (100) 反而被压下去。典型症状：最强峰 3.15°，
+         而 d = 1.5406/(2 sin(1.575°)) = 28.0 Å —— 正好等于 c。
+    2. N 层超胞（建模默认 layers=2）：c = N × 层间距
+       → 出现 l 不是 N 的倍数的假 (00l)（例如 2 层的 c = 7.2 Å，
+         12.3° 冒出一条 (001)，真实晶体里没有）。
+    3. 1 和 2 叠加：2 层 + 真空，c = 2×3.6 + 真空。
+
+    做法：先按 z 切层；各层等间距且互相平移等价时，取最小重复周期 p
+    （AA 的 p = 1，AB 的 p = 2 —— AB 的两层不等价，c 必须留 2 层，这是对的）；
+    只有一层时，若 c 明显大于「层厚 + d_stack」，按 AA 堆叠压回。
+
+    判据里加了一条成键检查：c 方向有键跨过胞壁 = 三维骨架（ctn/dia 那类），
+    一律不动，避免把真正的三维孔道压扁。
     """
-    info = axis_geometry(atoms)
-    g = info[2]
-    if g["void"] < min_void or g["second"] > 2.0:
-        return None
     cell = np.array(atoms.cell, dtype=float)
     na, nb, nc = (float(np.linalg.norm(cell[j])) for j in range(3))
+    # c 必须垂直于 a、b 且沿 z，否则"按 z 压"没有意义
     if abs(np.dot(cell[2], cell[0])) > 0.02 * na * nc:
         return None
     if abs(np.dot(cell[2], cell[1])) > 0.02 * nb * nc:
         return None
     if abs(cell[2][0]) > 0.05 or abs(cell[2][1]) > 0.05:
         return None
+    if _bonds_cross_c(atoms):
+        return None
 
-    new = atoms.copy()
-    new.positions[:, 2] = new.positions[:, 2] - new.positions[:, 2].min()
-    thick = float(new.positions[:, 2].max())
+    layers = _split_layers(atoms)
+    c0 = float(np.linalg.norm(cell[2]))
+    z = atoms.positions[:, 2]
+
+    # ---- 情形 2/3：多层，且层间距均匀 ----
+    if len(layers) >= 2:
+        zc = np.array([float(z[idx].mean()) for idx in layers])
+        sp = np.diff(zc)
+        if sp.max() - sp.min() < 0.3 and 2.0 <= sp.mean() <= 8.0:
+            period = None
+            for p in range(1, len(layers)):
+                if all(_same_layer(atoms, layers[k], layers[k + p])
+                       for k in range(len(layers) - p)):
+                    period = p
+                    break
+            if period is None:
+                return None
+            c_new = float(sp.mean()) * period
+            if c_new > c0 - 0.5:            # 已经是真实周期，不用动
+                return None
+            keep = np.concatenate(layers[:period]) if period > 1 else layers[0]
+            keep = np.sort(keep)
+            new = atoms[keep]
+            pos = new.get_positions()
+            pos[:, 2] = pos[:, 2] - pos[:, 2].min()
+            cell2 = cell.copy()
+            cell2[2] = [0.0, 0.0, c_new]
+            new.set_cell(cell2, scale_atoms=False)
+            new.set_positions(pos)
+            new.wrap()
+            return new, {"void": None, "thickness": None,
+                         "c_before": round(c0, 3), "c_after": round(c_new, 3),
+                         "d_stack": float(d_stack), "layers": len(layers),
+                         "period": period, "n_atoms_before": len(atoms)}
+
+    # ---- 情形 1：单层 + 真空 ----
+    info = axis_geometry(atoms)
+    g = info[2]
+    if g["void"] < min_void:
+        return None
+    thick = float(z.max() - z.min())
     c_new = thick + d_stack
-    cell[2] = [0.0, 0.0, c_new]
-    new.set_cell(cell, scale_atoms=False)
+    if c0 - c_new < 0.5:
+        return None
+    new = atoms.copy()
+    pos = new.get_positions()
+    pos[:, 2] = pos[:, 2] - pos[:, 2].min()
+    cell2 = cell.copy()
+    cell2[2] = [0.0, 0.0, c_new]
+    new.set_cell(cell2, scale_atoms=False)
+    new.set_positions(pos)
+    new.wrap()
     return new, {"void": round(g["void"], 2), "thickness": round(thick, 2),
-                 "c_before": round(float(np.linalg.norm(atoms.cell[2])), 3),
-                 "c_after": round(c_new, 3), "d_stack": float(d_stack)}
+                 "c_before": round(c0, 3), "c_after": round(c_new, 3),
+                 "d_stack": float(d_stack), "layers": 1, "period": 1,
+                 "n_atoms_before": len(atoms)}
+
+
+def fix_vacuum(atoms, d_stack: float = 3.60, min_void: float = 4.0):
+    """兼容旧接口：等价于 normalize_cell。"""
+    return normalize_cell(atoms, d_stack, min_void)
 
 
 def lowest_reflection(cell, wl: float, rng: int = 3):
@@ -181,6 +291,26 @@ def lowest_reflection(cell, wl: float, rng: int = 3):
 # --------------------------------------------------------------------------
 # 主计算
 # --------------------------------------------------------------------------
+def _canonical_hkl(members, fallback):
+    """同一个晶面族里挑一个方便读的代表：优先 (h,0,l)，其次 h>0、k>0。
+
+    否则六方的 (100) 会被标成 (0,-1,0)、立方 (311) 标成 (-3,-1,-1)，
+    跟文献里的写法对不上。
+    """
+    if not members:
+        return fallback
+
+    def key(h):
+        hh, kk, ll = h
+        return (0 if (hh > 0 and kk == 0) else 1,
+                0 if (hh > 0 and kk > 0) else 1,
+                0 if hh >= 0 else 1,
+                0 if kk >= 0 else 1,
+                abs(ll), -hh)
+
+    return min(members, key=key)
+
+
 def _compute(atoms, wl, tth_min, tth_max, step, size_nm, b_iso, eta, inst_fwhm) -> dict:
     cell = np.array(atoms.cell, dtype=float)           # 行向量 a, b, c
     frac = np.array(atoms.get_scaled_positions(wrap=True), dtype=float)
@@ -275,6 +405,7 @@ def _compute(atoms, wl, tth_min, tth_max, step, size_nm, b_iso, eta, inst_fwhm) 
             g = groups[-1]
             g["I"] += float(I[i])
             g["m"] += 1
+            g["mem"].append([int(v) for v in hkl[i]])
             if I[i] > g["Ibest"]:
                 g["Ibest"] = float(I[i])
                 g["hkl"] = [int(v) for v in hkl[i]]
@@ -283,7 +414,8 @@ def _compute(atoms, wl, tth_min, tth_max, step, size_nm, b_iso, eta, inst_fwhm) 
             groups.append({"d": d, "I": float(I[i]), "m": 1,
                            "Ibest": float(I[i]),
                            "hkl": [int(v) for v in hkl[i]],
-                           "tth": float(tth_hkl[i])})
+                           "tth": float(tth_hkl[i]),
+                           "mem": [[int(v) for v in hkl[i]]]})
 
     imax = max(g["I"] for g in groups)
     peaks = []
@@ -292,7 +424,8 @@ def _compute(atoms, wl, tth_min, tth_max, step, size_nm, b_iso, eta, inst_fwhm) 
         if rel < 0.05:                 # 完全消光/极弱的反射不进峰表
             break
         peaks.append({"tth": round(g["tth"], 3), "d": round(g["d"], 4),
-                      "hkl": g["hkl"], "I": round(rel, 2), "m": g["m"]})
+                      "hkl": _canonical_hkl(g["mem"], g["hkl"]),
+                      "I": round(rel, 2), "m": g["m"]})
         if len(peaks) >= 60:
             break
     peaks.sort(key=lambda p: p["tth"])
@@ -330,12 +463,18 @@ def powder_pattern(cif: str | Path, wl: float = 1.54056,
     warn, vac = [], None
 
     if fix_vac:
-        r = fix_vacuum(atoms, d_stack)
+        r = normalize_cell(atoms, d_stack)
         if r:
             atoms, vac = r
-            warn.append("原胞沿 c 有 %.1f Å 真空（单层模型），已按 AA 堆叠 "
-                        "d = %.2f Å 压回 c = %.2f Å 计算"
-                        % (vac["void"], vac["d_stack"], vac["c_after"]))
+            if vac.get("layers", 1) > 1:
+                warn.append("原胞是 %d 层超胞（c = %.2f Å），已按真实层间周期约化到 "
+                            "c = %.2f Å（留 %d 层）计算"
+                            % (vac["layers"], vac["c_before"], vac["c_after"],
+                               vac["period"]))
+            else:
+                warn.append("原胞沿 c 有 %.1f Å 真空（单层模型），已按 AA 堆叠 "
+                            "d = %.2f Å 压回 c = %.2f Å 计算"
+                            % (vac["void"], vac["d_stack"], vac["c_after"]))
 
     res = _compute(atoms, wl, tth_min, tth_max, step, size_nm, b_iso, eta, inst_fwhm)
 
