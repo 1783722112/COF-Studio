@@ -162,10 +162,14 @@ def upload_assets(repo: str, rel: dict, ver: str) -> None:
     每个 Release 都要带齐，否则老版本用户拿不到整包。"""
     want = ["latest.json", f"cof_patch_{ver}.zip", f"cof_full_{ver}.zip"]
     missing = [n for n in want if not (RELEASE_DIR / n).is_file()]
-    if missing:
-        sys.exit("release/ 里缺文件（先跑 make_release.py）：\n  "
+    if "cof_full_" + ver + ".zip" in missing:
+        sys.exit("release/ 里缺整包（先跑 make_release.py --full）：\n  "
                  + "\n  ".join(missing))
-    for name in want:
+    if missing:
+        # 补丁可以不发（改了 cof_studio.py 的版本必须整包），
+        # latest.json 里没 patch 字段客户端就只露「下载整包」按钮
+        print("注意：没有补丁包，本版只发整包 ——", missing)
+    for name in [n for n in want if n not in missing]:
         p = RELEASE_DIR / name
         ctype = mimetypes.guess_type(name)[0] or "application/octet-stream"
         if name.endswith(".zip"):

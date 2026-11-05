@@ -169,7 +169,7 @@ DEFAULT_CONFIG = {
     "update_url": "https://github.com/1783722112/COF-Studio/releases/latest/download",
 }
 
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.3.0"
 
 # 这几个才是路径，load_config 的"路径还活着吗"自愈只该管它们。
 PATH_KEYS = ("engine_build_3d", "engine_build_2d", "engine_opt",
@@ -671,6 +671,14 @@ def _self_exec(argv: list) -> list:
     return [sys.executable, "--pyexec"] + list(argv)
 
 
+def xrd_cmd(args: list) -> list:
+    """XRD 引擎跟建模引擎共用解释器（只要 numpy + ase）。"""
+    script = str(ENGINES / "xrd.py")
+    if FROZEN:
+        return _self_exec([script] + list(args))
+    return [build_py(), script] + list(args)
+
+
 def engine_cmd(key: str, args: list) -> list:
     """拼出调用某个引擎的完整命令行。"""
     script = str(engine_path(key))
@@ -1031,6 +1039,53 @@ def build_3d(params: dict) -> dict:
     return payload
 
 
+def _stack_layers(cif: Path, mode: str, layers: int, gap: float,
+                  dx: float, dy: float) -> Path:
+    """把单层结构沿 c 轴复制成 N 层，另存一个 CIF 并返回路径。
+
+    AA   → 每层完全对齐（eclipsed），c = gap × N
+    AB   → 奇偶层交替偏移 (dx, dy)（默认 0.5, 0.5），交错堆积
+    自由 → 每层比上一层再多偏 (dx, dy)，连续滑移（ABC 型）
+
+    偏移量是**分数坐标**，直接加在 x / y 上，不依赖晶胞形状。
+    """
+    from ase import Atoms
+    from ase.io import read as _rd, write as _wr
+
+    a = _rd(str(cif))
+    cell = np.array(a.cell, dtype=float)
+    frac = np.array(a.get_scaled_positions(wrap=True), dtype=float)
+    syms = a.get_chemical_symbols()
+    if not len(syms):
+        raise RuntimeError("结构里没有原子")
+    if abs(cell[2][2]) < 1e-6:
+        raise RuntimeError("c 轴长度为 0，没法堆叠")
+
+    new_cell = cell.copy()
+    new_cell[2] = cell[2] * layers
+    af, asy = [], []
+    for i in range(layers):
+        if mode == "ab":
+            ox, oy = ((dx, dy) if i % 2 else (0.0, 0.0))
+        elif mode == "free":
+            ox, oy = dx * i, dy * i
+        else:
+            ox, oy = 0.0, 0.0
+        f = frac.copy()
+        f[:, 0] += ox
+        f[:, 1] += oy
+        f[:, 2] = (f[:, 2] + i) / layers
+        af.append(f)
+        asy.extend(syms)
+
+    new = Atoms(symbols=asy, scaled_positions=np.vstack(af),
+                cell=new_cell, pbc=True)
+    tag = {"aa": "AA", "ab": "AB"}.get(mode, "free")
+    outp = cif.with_name(f"{cif.stem}_{tag}{layers}L.cif")
+    _wr(str(outp), new, format="cif")
+    return outp
+
+
 def build_2d(params: dict) -> dict:
     node = _clean_smiles(params.get("node"))
     linker = _clean_smiles(params.get("linker"))
@@ -1041,9 +1096,35 @@ def build_2d(params: dict) -> dict:
     topo = (params.get("topology") or "auto").strip()
     name = safe_name(params.get("name") or f"2D_{linkage}")
 
+    # ---- 堆叠参数：AA（默认）/ AB / 自由滑移 ----
+    stack = (params.get("stack") or "aa").strip().lower()
+    if stack not in ("aa", "ab", "free"):
+        stack = "aa"
+    try:
+        layers = int(params.get("layers") or 1)
+    except Exception:
+        layers = 1
+    layers = max(1, min(layers, 6))
+    try:
+        gap = float(params.get("gap") or 3.60)
+    except Exception:
+        gap = 3.60
+    gap = max(2.5, min(gap, 8.0))
+    try:
+        dx = float(params.get("dx") or 0.0)
+        dy = float(params.get("dy") or 0.0)
+    except Exception:
+        dx = dy = 0.0
+    if stack == "aa":
+        dx = dy = 0.0
+        if layers == 1:
+            layers = 2              # 默认 AA 双层：能看出层间峰，又不至于太慢
+    elif layers < 2:
+        layers = 2                  # 选了 AB / 自由，没两层没意义
+
     out = WORK / name
     args = ["-n", node, "-l", linker, "-k", linkage,
-            "-o", str(out), "--no-plot"]
+            "-o", str(out), "--no-plot", "--c", f"{gap:.4f}"]
     if topo and topo != "auto":
         args += ["--topology", topo]
     cmd = engine_cmd("build_2d", args)
@@ -1059,11 +1140,97 @@ def build_2d(params: dict) -> dict:
         tail = "\n".join(log.strip().splitlines()[-25:])
         return {"ok": False, "error": "建模失败，见下方日志", "log": tail}
 
-    payload = structure_payload(cif)
+    target, stacked = cif, ""
+    if layers > 1:
+        try:
+            target = _stack_layers(cif, stack, layers, gap, dx, dy)
+            stacked = target.name
+        except Exception as e:
+            return {"ok": False,
+                    "error": f"堆叠失败：{type(e).__name__}: {e}",
+                    "log": "\n".join(log.strip().splitlines()[-20:])}
+
+    payload = structure_payload(target)
     payload.update({"log": "\n".join(log.strip().splitlines()[-30:]),
                     "elapsed": round(time.time() - t0, 2),
-                    "file": cif.name, "kind": "2d"})
+                    "file": target.name, "kind": "2d",
+                    "single": cif.name if stacked else "",
+                    "stack": {"mode": stack, "layers": layers, "gap": gap,
+                              "dx": dx, "dy": dy}})
+    if stacked:
+        payload["log"] = (f"[堆叠] {stack.upper()} × {layers} 层，层间距 "
+                          f"{gap:.2f} Å，偏移 ({dx:.3f}, {dy:.3f}) → {stacked}\n"
+                          + payload["log"])
     return payload
+
+
+# --------------------------------------------------------------------------
+# XRD 模拟
+# --------------------------------------------------------------------------
+def run_xrd(params: dict) -> dict:
+    """按给定 2θ 范围算粉末 XRD。结构取 work/ 里的 CIF/XYZ。"""
+    p = _safe_work_file(params.get("file") or "")
+    if not p:
+        return {"ok": False,
+                "error": "找不到结构文件（先建模，或从 work/ 里挑一个）"}
+    if p.suffix.lower() not in (".cif", ".xyz"):
+        return {"ok": False, "error": "只支持 CIF / XYZ"}
+
+    def num(key, dflt, lo, hi):
+        try:
+            v = float(params.get(key))
+        except Exception:
+            v = dflt
+        return max(lo, min(v, hi))
+
+    wl = num("wl", 1.54056, 0.3, 3.5)
+    t0 = num("tth_min", 2.0, 0.5, 120.0)
+    t1 = num("tth_max", 40.0, 1.0, 150.0)
+    if t1 <= t0 + 0.5:
+        return {"ok": False, "error": "2θ 范围要至少 0.5°，且终点大于起点"}
+    step = num("step", 0.02, 0.002, 0.5)
+    if (t1 - t0) / step > 20000:
+        return {"ok": False, "error": "步长太小（超过 2 万个点），调大一点"}
+    size = num("size", 20.0, 0.0, 5000.0)
+
+    cmd = xrd_cmd(["--cif", str(p), "--wl", f"{wl:.5f}",
+                   "--tth-min", f"{t0:.3f}", "--tth-max", f"{t1:.3f}",
+                   "--step", f"{step:.4f}", "--size", f"{size:.1f}"])
+    t_start = time.time()
+    try:
+        rc, log = _run_sync(cmd, ENGINES, timeout=600)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "XRD 计算超时（>10 分钟）"}
+
+    data = None
+    for line in reversed((log or "").strip().splitlines()):
+        line = line.strip()
+        if line.startswith("{") and line.endswith("}"):
+            try:
+                data = json.loads(line)
+                break
+            except Exception:
+                continue
+    if not data:
+        return {"ok": False, "error": "XRD 引擎没有返回结果",
+                "log": "\n".join((log or "").strip().splitlines()[-15:])}
+    if not data.get("ok"):
+        return {"ok": False, "error": data.get("error") or "XRD 计算出错"}
+
+    csv_name = ""
+    try:
+        csv_name = f"{p.stem}_xrd_{t0:.0f}-{t1:.0f}.csv"
+        with open(WORK / csv_name, "w", encoding="utf-8") as f:
+            f.write("2theta_deg,intensity\n")
+            for x, v in zip(data["tth"], data["I"]):
+                f.write(f"{x:.3f},{v:.2f}\n")
+    except Exception:
+        csv_name = ""
+
+    data.update({"ok": True, "file": p.name, "csv": csv_name,
+                 "elapsed": round(time.time() - t_start, 2),
+                 "size": size})
+    return data
 
 
 # --------------------------------------------------------------------------
@@ -1501,6 +1668,8 @@ class Handler(BaseHTTPRequestHandler):
                 mode = (req.get("mode") or "3d").lower()
                 res = build_2d(req) if mode == "2d" else build_3d(req)
                 return self._json(res)
+            if path == "/api/xrd":
+                return self._json(run_xrd(req))
             if path == "/api/opt":
                 return self._json(start_opt(req))
             if path == "/api/job/stop":
