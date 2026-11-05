@@ -172,7 +172,7 @@ DEFAULT_CONFIG = {
     "update_url": "https://github.com/1783722112/COF-Studio/releases/latest/download",
 }
 
-APP_VERSION = "1.3.4"
+APP_VERSION = "1.3.5"
 
 # 这几个才是路径，load_config 的"路径还活着吗"自愈只该管它们。
 PATH_KEYS = ("engine_build_3d", "engine_build_2d", "engine_opt", "engine_stack",
@@ -1125,8 +1125,7 @@ def build_2d(params: dict) -> dict:
         dx = dy = 0.0
     if stack == "aa":
         dx = dy = 0.0
-        if layers == 1:
-            layers = 2              # 默认 AA 双层：能看出层间峰，又不至于太慢
+        # 层数=1 就是单层，尊重用户选择（1.3.4 及以前会强制改成双层）
     elif layers < 2:
         layers = 2                  # 选了 AB / 自由，没两层没意义
 
