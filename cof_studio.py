@@ -149,6 +149,7 @@ ENGINE_FILES = {
     "build_3d": "build_cof_3d.py",
     "build_2d": "cof_builder.py",
     "opt": "opt_cof.py",
+    "stack": "stack_energy.py",
 }
 
 DEFAULT_CONFIG = {
@@ -156,6 +157,8 @@ DEFAULT_CONFIG = {
     "engine_build_3d": "",
     "engine_build_2d": "",
     "engine_opt": "",
+    # 层间堆叠能引擎（stack_energy.py）
+    "engine_stack": "",
     # 解释器路径；留空 = 用启动本程序的解释器
     "py_build": "",
     "py_opt": "",
@@ -169,10 +172,10 @@ DEFAULT_CONFIG = {
     "update_url": "https://github.com/1783722112/COF-Studio/releases/latest/download",
 }
 
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.3.1"
 
 # 这几个才是路径，load_config 的"路径还活着吗"自愈只该管它们。
-PATH_KEYS = ("engine_build_3d", "engine_build_2d", "engine_opt",
+PATH_KEYS = ("engine_build_3d", "engine_build_2d", "engine_opt", "engine_stack",
              "py_build", "py_opt")
 
 CFG_LOCK = threading.Lock()
@@ -679,19 +682,24 @@ def xrd_cmd(args: list) -> list:
     return [build_py(), script] + list(args)
 
 
+def stack_cmd(args: list) -> list:
+    """堆叠能引擎要 torch + MACE，跟优化引擎共用解释器。"""
+    return engine_cmd("stack", args)
+
+
 def engine_cmd(key: str, args: list) -> list:
     """拼出调用某个引擎的完整命令行。"""
     script = str(engine_path(key))
     args = list(args)
     if FROZEN:
-        if key == "opt":
-            # 优化要 torch + MACE（约 2 GB），没随包打进去。
+        if key in ("opt", "stack"):
+            # 这两个引擎要 torch + MACE（约 2 GB），没随包打进去。
             # 用户若在 config.json 里指了外部解释器，就用他的。
             exe = (CFG.get("py_opt") or "").strip()
             if exe and app_exists(exe):
                 return [exe, script] + args
         return _self_exec([script] + args)
-    py = opt_py() if key == "opt" else build_py()
+    py = opt_py() if key in ("opt", "stack") else build_py()
     return [py, script] + args
 
 
@@ -1513,6 +1521,133 @@ def start_opt(params: dict) -> dict:
 
 
 # --------------------------------------------------------------------------
+# 层间堆叠能（AA / AB / 自定义偏移）
+# --------------------------------------------------------------------------
+def start_stack(params: dict) -> dict:
+    """扫层间距 → 给出每种堆叠的层间结合能极小值，并两两比较。
+
+    跟优化的区别：这个是**对比**任务，产出的是 JSON + CSV，不是 CIF。
+    所以 Job 的 out_cif 指向 JSON —— 文件出现即视为跑完，逻辑不用改。
+    """
+    cif_name = (params.get("file") or "").strip()
+    if not cif_name:
+        return {"ok": False, "error": "先建一个单层结构，或者从产物里挑一个"}
+    src = _safe_work_file(cif_name)
+    if not src or not src.is_file():
+        return {"ok": False, "error": f"找不到 {cif_name}"}
+    if src.suffix.lower() not in (".cif", ".xyz", ".vasp", ".poscar", ".pdb"):
+        return {"ok": False, "error": "只支持 CIF / XYZ 结构"}
+
+    pot = (params.get("potential") or "mace-mp").strip()
+    if pot not in ("mace-mp", "mace-off", "qcof", "file"):
+        pot = "mace-mp"
+
+    if FROZEN and not (CFG.get("py_opt") or "").strip():
+        return {"ok": False, "error": (
+            "堆叠能要用势函数（torch + MACE），桌面版没打包这几个 GB。\n"
+            "在 exe 旁边的 config.json 里把 py_opt 指向装了 mace-torch 的 "
+            "python.exe 就能用。")}
+
+    def num(key, dflt, lo, hi):
+        try:
+            v = float(params.get(key))
+        except Exception:
+            v = dflt
+        return max(lo, min(v, hi))
+
+    d0 = num("gap_min", 3.0, 1.5, 10.0)
+    d1 = num("gap_max", 6.0, 2.0, 12.0)
+    if d1 <= d0 + 0.2:
+        d1 = d0 + 1.0
+    step = num("gap_step", 0.2, 0.05, 1.0)
+    if (d1 - d0) / step > 60:
+        step = round((d1 - d0) / 40, 3)
+    vac = num("vacuum", 20.0, 12.0, 40.0)
+
+    modes = (params.get("modes") or "aa,ab").strip().lower()
+    # 只放行 aa / ab / abc / 数字对，别让奇怪字符串进命令行
+    clean = []
+    for tok in modes.replace(";", ",").split(","):
+        tok = tok.strip()
+        if not tok:
+            continue
+        if tok in ("aa", "ab", "abc"):
+            clean.append(tok)
+        else:
+            try:
+                clean.append(f"{float(tok):.4f}")
+            except ValueError:
+                continue
+    modes = ",".join(clean) or "aa,ab"
+
+    stem = re.sub(r"[^\w\-.]+", "_", src.stem)[:40] or "stack"
+    out = WORK / f"{stem}_stack.json"
+    csv_path = WORK / f"{stem}_stack.csv"
+
+    args = [str(src), "-o", str(out), "-p", pot,
+            "--modes", modes,
+            "--gap-min", f"{d0:.3f}", "--gap-max", f"{d1:.3f}",
+            "--gap-step", f"{step:.3f}", "--vacuum", f"{vac:.1f}",
+            "--csv", str(csv_path)]
+    model = (params.get("model") or "").strip()
+    if model in ("small", "medium", "large") and pot != "qcof":
+        args += ["--model", model]
+    if params.get("model_file"):
+        args += ["--model-file", str(params["model_file"])]
+    if params.get("device") in ("cpu", "cuda", "auto"):
+        args += ["--device", params["device"]]
+    if params.get("no_dispersion"):
+        args += ["--no-dispersion"]
+    if params.get("allow_download"):
+        args += ["--allow-download"]
+    if not params.get("relax_mono", True):
+        args += ["--no-relax-mono"]
+    if params.get("relax_min"):
+        args += ["--relax-min"]
+    else:
+        args += ["--no-relax-min"]
+    if params.get("mono_steps"):
+        args += ["--mono-steps", str(int(params["mono_steps"]))]
+
+    cmd = stack_cmd(args)
+
+    JOB_SEQ[0] += 1
+    jid = f"s{JOB_SEQ[0]}"
+    meta = {
+        "kind": "stack",
+        "potential": pot,
+        "modes": modes,
+        "gap_min": d0, "gap_max": d1, "gap_step": step,
+        "n_points": int(round((d1 - d0) / step)) + 1,
+        "relax_min": bool(params.get("relax_min")),
+        "csv": csv_path.name,
+    }
+    job = Job(jid, cmd, WORK, out, label=src.stem, meta=meta)
+    if len(JOBS) > 20:
+        for k in [k for k, j in JOBS.items() if j.status != "running"][:-10]:
+            JOBS.pop(k, None)
+    JOBS[jid] = job
+    job.start()
+    return {"ok": True, "job": jid, "out": out.name, "csv": csv_path.name,
+            "cmd": " ".join(cmd), "n_points": meta["n_points"]}
+
+
+def work_json(name: str) -> dict:
+    """读 work/ 里的结果 JSON（只允许 .json，防止顺手把别的文件读出去）。"""
+    p = _safe_work_file(name)
+    if not p or p.suffix.lower() != ".json" or not p.is_file():
+        return {"ok": False, "error": "结果文件不存在"}
+    try:
+        with open(p, encoding="utf-8") as f:
+            d = json.load(f)
+        if isinstance(d, dict):
+            d.setdefault("ok", True)
+        return d if isinstance(d, dict) else {"ok": False, "error": "格式不对"}
+    except Exception as exc:
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+# --------------------------------------------------------------------------
 # 文件列表
 # --------------------------------------------------------------------------
 def list_files() -> list:
@@ -1643,6 +1778,9 @@ class Handler(BaseHTTPRequestHandler):
                 if not p:
                     return self._json({"ok": False, "error": "文件不存在"}, 404)
                 return self._json(structure_payload(p))
+            if path == "/api/json":
+                # 堆叠能这类"结果是一份 JSON"的任务，跑完由这里取回
+                return self._json(work_json((q.get("f") or [""])[0]))
             if path == "/api/download":
                 p = _safe_work_file((q.get("f") or [""])[0])
                 if not p:
@@ -1672,6 +1810,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(run_xrd(req))
             if path == "/api/opt":
                 return self._json(start_opt(req))
+            if path == "/api/stack":
+                return self._json(start_stack(req))
             if path == "/api/job/stop":
                 job = JOBS.get(req.get("id") or "")
                 if job:

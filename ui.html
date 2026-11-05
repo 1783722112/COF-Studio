@@ -111,6 +111,16 @@ input::placeholder{color:#b3b9c4}
 /* 三个主行动按钮占满左栏，避免缩成一小块 */
 #go2d,#go3d,#goopt{width:100%}
 .chips{display:flex;flex-wrap:wrap;gap:6px}
+/* 复选行：堆叠方式 / 弛豫开关 */
+.chk{
+  display:flex;align-items:center;gap:6px;font-size:12.5px;color:#4b5262;
+  border:1px solid var(--line);background:var(--card);border-radius:7px;
+  padding:4px 9px;cursor:pointer;user-select:none;
+}
+.chk input{accent-color:var(--accent);width:13px;height:13px;cursor:pointer}
+#stkModes .chk{border-radius:999px}
+#gostack{width:100%}
+#stkTbl td .tag{font-variant-numeric:tabular-nums}
 .chip{
   border:1px solid var(--line);background:var(--card);border-radius:999px;
   padding:4px 11px;font-size:12px;cursor:pointer;transition:.15s;color:#4b5262;
@@ -521,6 +531,45 @@ code.cmd{
           <div class="group-title" style="margin-bottom:8px" data-i18n="opt.diff">优化前后</div>
           <div class="diff" id="diffBox"></div>
         </div>
+
+        <!-- ===== 层间堆叠能 ===== -->
+        <div class="group" id="stackGroup">
+          <div class="group-title" data-i18n="stk.title">层间堆叠能（AA / AB）</div>
+          <div class="note" data-i18n="stk.note">扫层间距 d，比较哪种堆法更稳。</div>
+          <div class="field">
+            <label data-i18n="stk.modes">堆叠方式</label>
+            <div class="chips" id="stkModes">
+              <label class="chk"><input type="checkbox" value="aa" checked> AA</label>
+              <label class="chk"><input type="checkbox" value="ab" checked> AB</label>
+              <label class="chk"><input type="checkbox" value="abc"> ABC</label>
+            </div>
+          </div>
+          <div class="row">
+            <div class="field"><label><span data-i18n="stk.d0">d 起点</span> <span class="hint">Å</span></label>
+              <input type="number" id="stkD0" value="3.0" step="0.1" min="1.5" max="10"></div>
+            <div class="field"><label><span data-i18n="stk.d1">d 终点</span> <span class="hint">Å</span></label>
+              <input type="number" id="stkD1" value="6.0" step="0.1" min="2" max="12"></div>
+          </div>
+          <div class="row">
+            <div class="field"><label><span data-i18n="stk.step">步长</span> <span class="hint">Å</span></label>
+              <input type="number" id="stkStep" value="0.2" step="0.05" min="0.05" max="1"></div>
+            <div class="field"><label><span data-i18n="stk.vac">真空层</span> <span class="hint">Å</span></label>
+              <input type="number" id="stkVac" value="20" step="2" min="12" max="40"></div>
+          </div>
+          <label class="chk"><input type="checkbox" id="stkRelaxMono" checked>
+            <span data-i18n="stk.relaxMono">先弛豫单层</span></label>
+          <label class="chk"><input type="checkbox" id="stkRelaxMin" checked>
+            <span data-i18n="stk.relaxMin">最优点再弛豫（更准，慢）</span></label>
+          <div id="stkTip" class="note warn hidden" data-i18n="stk.tip"></div>
+          <button class="btn btn-primary" id="gostack" data-i18n="stk.go">扫描堆叠能</button>
+          <button class="btn btn-ghost btn-sm hidden" id="stopstack" data-i18n="stk.stop">停止</button>
+          <div class="progress-wrap hidden" id="stkProgWrap">
+            <div class="progress-bar"><div class="progress-fill" id="stkFill"></div></div>
+            <div class="progress-meta"><span id="stkStage">准备中…</span><span id="stkTime">0s</span></div>
+          </div>
+          <div id="msgstack"></div>
+          <button class="btn btn-ghost btn-sm hidden" id="stkView" data-i18n="stk.view">查看结果</button>
+        </div>
       </div>
     </aside>
 
@@ -736,6 +785,32 @@ python -m pip install numpy ase torch mace-torch torch-dftd matplotlib scipy</co
   </div>
 </div>
 
+<!-- ========== 堆叠能结果弹层 ========== -->
+<div class="modal-bg" id="stkModal">
+  <div class="modal wide">
+    <div class="modal-head">
+      <h3><span data-i18n="stk.title">层间堆叠能（AA / AB）</span>
+        <span class="hint" id="stkInfo" style="font-weight:400"></span></h3>
+      <button class="icon-btn" id="stkClose">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5b6474" stroke-width="2">
+          <path d="M18 6 6 18M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="xrd-wrap"><div id="stkChart"></div></div>
+      <div id="stkSummary" class="note ok"></div>
+      <div style="max-height:240px;overflow:auto"><table class="xrd-tbl" id="stkTbl"></table></div>
+    </div>
+    <div class="modal-foot">
+      <span class="hint" style="margin-right:auto" id="stkFoot"></span>
+      <button class="btn btn-ghost" id="stkCsv" data-i18n="stk.dlCsv">下载 CSV</button>
+      <button class="btn btn-ghost" id="stkJson" data-i18n="stk.dlJson">下载 JSON</button>
+      <button class="btn btn-ghost" id="stkClose2" data-i18n="common.close">关闭</button>
+    </div>
+  </div>
+</div>
+
 <script>
 /* ==========================================================================
    状态
@@ -912,6 +987,39 @@ const I18N = {
     "status.attached": "已接回运行中的任务", "status.ended": "任务已结束 · {s}",
     "status.loaded": "已载入 {f}",
 
+    "stk.title": "层间堆叠能（AA / AB）",
+    "stk.note": "扫层间距 d，比较哪种堆法更稳。用上面的结构文件（多层会自动只取一层），需要带色散的势。",
+    "stk.modes": "堆叠方式",
+    "stk.d0": "d 起点", "stk.d1": "d 终点", "stk.step": "步长", "stk.vac": "真空层",
+    "stk.relaxMono": "先弛豫单层",
+    "stk.relaxMin": "最优点再弛豫（更准，慢）",
+    "stk.go": "扫描堆叠能",
+    "stk.stop": "停止",
+    "stk.running": "扫描中…",
+    "stk.needFile": "先在上面选一个结构文件",
+    "stk.launchFail": "启动不了",
+    "stk.done": "扫描完成",
+    "stk.fail": "扫描失败",
+    "stk.points": "{a}/{b} 个点",
+    "stk.gap": "层间距 d (Å)",
+    "stk.ebAtom": "结合能 (meV/atom)",
+    "stk.ebArea": "结合能 (meV/Å²)",
+    "stk.mode": "堆叠",
+    "stk.dstar": "最优 d (Å)",
+    "stk.rigid": "刚体扫描",
+    "stk.relaxed": "弛豫后",
+    "stk.delta": "差值",
+    "stk.preferred": "更稳：{m}",
+    "stk.summary": "共 {n} 种堆法；{p}。负值 = 稳定。刚体扫描不含层内弛豫，会低估结合能，报数请用「弛豫后」。",
+    "stk.norelax": "未做最优点弛豫（刚体扫描值偏小）",
+    "stk.tip": "QCOF 是短程势，没有长程色散，算不了层间 —— 这里请用 MACE-MP-0 + D3。",
+    "stk.view": "查看结果",
+    "stk.dlCsv": "下载 CSV",
+    "stk.dlJson": "下载 JSON",
+    "stk.info": "{f} · {n} 原子/层 · 面积 {a} Å² · {p} · {t}s",
+    "stk.empty": "还没有结果",
+    "stk.slide": "层间滑移",
+
     "noBackend.html": `<b>没有连上后台服务</b>，这个页面现在只能看、不能建模。<br>
 正确用法：关掉本页 → 双击文件夹里的 <code>run.bat</code>（桌面版是 <code>COFStudio.exe</code>）→
 等程序启动后浏览器会自动打开。<br>
@@ -1072,6 +1180,39 @@ const I18N = {
     "status.attached": "Running job re-attached", "status.ended": "Job finished · {s}",
     "status.loaded": "Loaded {f}",
 
+    "stk.title": "Interlayer stacking energy (AA / AB)",
+    "stk.note": "Scan the layer gap d and see which stacking wins. Uses the structure selected above (multilayers are trimmed to one layer); needs a dispersion-corrected potential.",
+    "stk.modes": "Stackings",
+    "stk.d0": "d start", "stk.d1": "d end", "stk.step": "Step", "stk.vac": "Vacuum",
+    "stk.relaxMono": "Relax monolayer first",
+    "stk.relaxMin": "Relax at the minimum (slower, accurate)",
+    "stk.go": "Scan stacking energy",
+    "stk.stop": "Stop",
+    "stk.running": "Scanning…",
+    "stk.needFile": "Pick a structure file above first",
+    "stk.launchFail": "Could not start",
+    "stk.done": "Scan finished",
+    "stk.fail": "Scan failed",
+    "stk.points": "{a}/{b} points",
+    "stk.gap": "Layer gap d (Å)",
+    "stk.ebAtom": "Binding energy (meV/atom)",
+    "stk.ebArea": "Binding energy (meV/Å²)",
+    "stk.mode": "Stacking",
+    "stk.dstar": "d* (Å)",
+    "stk.rigid": "Rigid scan",
+    "stk.relaxed": "Relaxed",
+    "stk.delta": "Delta",
+    "stk.preferred": "More stable: {m}",
+    "stk.summary": "{n} stackings compared; {p}. Negative = bound. The rigid scan ignores in-layer relaxation and underestimates binding — quote the relaxed values.",
+    "stk.norelax": "No minimum relaxation (rigid scan underestimates)",
+    "stk.tip": "QCOF is a short-range potential with no long-range dispersion — use MACE-MP-0 + D3 here.",
+    "stk.view": "View result",
+    "stk.dlCsv": "Download CSV",
+    "stk.dlJson": "Download JSON",
+    "stk.info": "{f} · {n} atoms/layer · area {a} Å² · {p} · {t}s",
+    "stk.empty": "No result yet",
+    "stk.slide": "Interlayer slide",
+
     "noBackend.html": `<b>Not connected to the backend service</b> — this page can only be viewed, nothing can be built.<br>
 Correct usage: close this page → double-click <code>run.bat</code> in the folder (or <code>COFStudio.exe</code> for the desktop build) →
 the browser opens automatically once the server is up.<br>
@@ -1104,6 +1245,7 @@ function applyLang(lang, persist) {
   // 环境面板是 JS 拼出来的，切语言得重画一遍
   if (S.env) renderEnv(S.env);
   if (S.lastBuild) showBuildResult(S.lastBuild);
+  if (S.stack) renderStack(S.stack);
   if (S.status) setStatus(S.status.key, S.status.kind, S.status.vars);
   if (!$("#progStage").dataset.live) $("#progStage").textContent = t("stage.prep");
   if (S.updMsg) updSay(S.updMsg.key, S.updMsg.vars, S.updMsg.cls);
@@ -1773,6 +1915,274 @@ $("#xrdSvg").onclick = () => {
 };
 
 
+/* ==========================================================================
+   层间堆叠能（AA / AB）
+   ========================================================================== */
+S.stack = null;            // 最近一次结果（切语言时重画）
+S.stackJob = null;
+S.stackLines = 0;
+S.stackFrac = 0;
+const STK_C = ["#2563eb", "#d97706", "#16a34a", "#9333ea", "#0891b2"];
+
+function stackModes() {
+  const on = $$("#stkModes input").filter(i => i.checked).map(i => i.value);
+  return on.length ? on.join(",") : "aa";
+}
+
+$("#gostack").onclick = async () => {
+  const file = $("#optFile").value;
+  if (!file) { msg("#msgstack", t("stk.needFile"), "warn"); return; }
+  const body = {
+    file,
+    potential: $("#optPot").value,
+    model: $("#optModel").value,
+    device: $("#optDevice").value,
+    modes: stackModes(),
+    gap_min: +$("#stkD0").value,
+    gap_max: +$("#stkD1").value,
+    gap_step: +$("#stkStep").value,
+    vacuum: +$("#stkVac").value,
+    relax_mono: $("#stkRelaxMono").checked,
+    relax_min: $("#stkRelaxMin").checked,
+    allow_download: $("#optDl").checked,
+  };
+  if (body.potential === "qcof") delete body.model;
+
+  $("#gostack").disabled = true;
+  $("#stopstack").classList.remove("hidden");
+  $("#stkProgWrap").classList.remove("hidden");
+  $("#stkFill").style.width = "2%";
+  $("#stkView").classList.add("hidden");
+  msg("#msgstack", "");
+  logEl.innerHTML = "";
+  S.stackLines = 0; S.stackFrac = 0;
+  t0 = performance.now();
+
+  try {
+    const r = await fetch("/api/stack", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body)
+    });
+    const d = await r.json();
+    if (!d.ok) {
+      msg("#msgstack", `<b>${t("stk.launchFail")}</b><br>${d.error}`, "err");
+      stackReset();
+      return;
+    }
+    S.stackJob = d.job;
+    S.stackOut = d.out;
+    S.stackCsvName = d.csv || "";
+    setStatus("stk.running", "");
+    stackPoll();
+  } catch (e) {
+    msg("#msgstack", `<b>${t("msg.reqFail")}</b><br>${e}`, "err");
+    stackReset();
+  }
+};
+
+$("#stopstack").onclick = async () => {
+  if (!S.stackJob) return;
+  await fetch("/api/job/stop", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({id: S.stackJob})
+  });
+  log(t("msg.stopReq"), "warn");
+};
+
+function stackReset() {
+  $("#gostack").disabled = false;
+  $("#stopstack").classList.add("hidden");
+}
+
+async function stackPoll() {
+  if (!S.stackJob) return;
+  let d;
+  try {
+    const r = await fetch(`/api/job?id=${S.stackJob}&from=${S.stackLines}`);
+    d = await r.json();
+  } catch (e) {
+    setTimeout(stackPoll, 1500);
+    return;
+  }
+  if (!d.ok) return;
+  for (const line of d.lines || []) logAuto(line);
+  S.stackLines = d.total;
+
+  for (const line of d.lines || []) {
+    const m = /\[(\d+)\/(\d+)\]/.exec(line);
+    if (m) { S.stackFrac = Math.min(1, (+m[1]) / (+m[2])); S.stackPt = [+m[1], +m[2]]; }
+  }
+  const frac = Math.max(0.03, 0.05 + 0.92 * S.stackFrac);
+  $("#stkFill").style.width = (d.status === "done" ? 100 : frac * 100).toFixed(1) + "%";
+  $("#stkStage").textContent = d.status === "running"
+    ? (S.stackPt ? t("stk.points", {a: S.stackPt[0], b: S.stackPt[1]}) : t("stk.running"))
+    : (d.status === "done" ? t("stk.done") : t("stk.fail"));
+  $("#stkTime").textContent = d.elapsed + "s";
+
+  if (d.status === "running") {
+    setTimeout(stackPoll, 800);
+    return;
+  }
+
+  stackReset();
+  $("#gostack").disabled = false;
+  if (d.status === "done") {
+    setStatus("stk.done", "ok");
+    try {
+      const r = await fetch("/api/json?f=" + encodeURIComponent(S.stackOut));
+      const res = await r.json();
+      if (res.ok) {
+        S.stack = res;
+        renderStack(res);
+        $("#stkModal").classList.add("on");
+        $("#stkView").classList.remove("hidden");
+        msg("#msgstack", `<b>${t("stk.done")}</b> · ${d.elapsed}s`, "ok");
+      } else {
+        msg("#msgstack", t("stk.fail") + " · " + (res.error || ""), "err");
+      }
+    } catch (e) {
+      msg("#msgstack", t("stk.fail") + " · " + e, "err");
+    }
+  } else if (d.status === "cancelled") {
+    setStatus("status.stopped", "warn");
+    msg("#msgstack", t("msg.taskStopped"), "warn");
+  } else {
+    setStatus("stk.fail", "err");
+    msg("#msgstack", `<b>${t("stk.fail")}</b> · ${t("msg.optFailHint")}`, "err");
+  }
+}
+
+$("#stkView").onclick = () => {
+  if (!S.stack) return;
+  renderStack(S.stack);
+  $("#stkModal").classList.add("on");
+};
+$("#stkClose").onclick = $("#stkClose2").onclick = () => $("#stkModal").classList.remove("on");
+$("#stkModal").onclick = e => {
+  if (e.target.id === "stkModal") $("#stkModal").classList.remove("on");
+};
+$("#stkCsv").onclick = () => {
+  if (S.stackCsvName) location.href = "/api/download?f=" + encodeURIComponent(S.stackCsvName);
+};
+$("#stkJson").onclick = () => {
+  if (S.stackOut) location.href = "/api/download?f=" + encodeURIComponent(S.stackOut);
+};
+
+function ebOf(m) {
+  return m.relaxed ? m.relaxed.Eb_meV_atom : m.Eb_min_meV_atom;
+}
+
+function renderStack(d) {
+  const ms = d.modes || [];
+  const pot = d.potential_label || d.potential || "";
+  $("#stkInfo").textContent = t("stk.info", {
+    f: d.input, n: (d.mono || {}).n_atoms || "—",
+    a: (d.mono ? d.mono.area : 0).toFixed(1), p: pot, t: d.elapsed
+  });
+  $("#stkChart").innerHTML = stackSvg(d);
+
+  // ---- 表格 ----
+  const rows = ms.map((m, i) => {
+    const rl = m.relaxed;
+    return `<tr>
+      <td><b style="color:${STK_C[i % STK_C.length]}">${m.label}</b></td>
+      <td>${m.gap_min.toFixed(2)}</td>
+      <td>${m.Eb_min_meV_atom.toFixed(1)}</td>
+      <td>${rl ? rl.Eb_meV_atom.toFixed(1) : "—"}</td>
+      <td>${rl ? rl.Eb_meV_A2.toFixed(2) : m.Eb_min_meV_A2.toFixed(2)}</td>
+      <td>${rl ? `(${rl.slide[0].toFixed(2)}, ${rl.slide[1].toFixed(2)})` : "—"}</td>
+    </tr>`;
+  }).join("");
+  $("#stkTbl").innerHTML =
+    `<thead><tr><th>${t("stk.mode")}</th><th>${t("stk.dstar")}</th>
+      <th>${t("stk.rigid")} · meV/atom</th><th>${t("stk.relaxed")} · meV/atom</th>
+      <th>${t("stk.ebArea")}</th><th>${t("stk.slide")} (Å)</th></tr></thead>
+     <tbody>${rows}</tbody>`;
+
+  // ---- 结论 ----
+  const parts = Object.entries(d.delta || {}).map(([k, v]) => {
+    const [a, b] = k.split("|");
+    const s = v.dE_meV_atom;
+    return `${b} − ${a} = ${s > 0 ? "+" : ""}${s.toFixed(1)} meV/atom`;
+  });
+  let best = ms[0], bv = ebOf(ms[0]);
+  ms.forEach(m => { const v = ebOf(m); if (v < bv) { bv = v; best = m; } });
+  const sep = S.lang === "zh" ? "；" : "; ";
+  const p = parts.concat([t("stk.preferred", {m: best.label})]).join(sep);
+  $("#stkSummary").textContent = t("stk.summary", {n: ms.length, p});
+  $("#stkFoot").textContent = (d.settings && d.settings.relax_min)
+    ? "" : t("stk.norelax");
+}
+
+function stackSvg(d) {
+  const W = 880, H = 340, L = 66, R = 20, T = 26, B = 48;
+  const pw = W - L - R, ph = H - T - B;
+  const ms = d.modes || [];
+  if (!ms.length) return "";
+  const xs = ms[0].rows.map(r => r.gap);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs);
+  let lo = 0, hi = 0;
+  ms.forEach(m => m.rows.forEach(r => {
+    lo = Math.min(lo, r.Eb_meV_atom); hi = Math.max(hi, r.Eb_meV_atom);
+  }));
+  const pad = Math.max(1, (hi - lo) * 0.14);
+  lo -= pad; hi += pad;
+  const sx = v => L + (v - x0) / (x1 - x0 || 1) * pw;
+  const sy = v => T + ph - (v - lo) / (hi - lo || 1) * ph;
+  const o = [];
+  o.push(`<svg class="xrd-svg" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`);
+
+  const stx = niceStep((x1 - x0) / 8);
+  const dxx = stx < 1 ? 1 : 0;
+  for (let v = Math.ceil(x0 / stx) * stx; v <= x1 + 1e-9; v += stx) {
+    const X = sx(v);
+    o.push(`<line x1="${X.toFixed(1)}" y1="${T}" x2="${X.toFixed(1)}" y2="${T + ph}" stroke="var(--line-2)"/>`);
+    o.push(`<text x="${X.toFixed(1)}" y="${T + ph + 16}" text-anchor="middle" font-size="11" fill="var(--muted)">${v.toFixed(dxx)}</text>`);
+  }
+  const sty = niceStep((hi - lo) / 6);
+  for (let v = Math.ceil(lo / sty) * sty; v <= hi + 1e-9; v += sty) {
+    const Y = sy(v);
+    o.push(`<line x1="${L}" y1="${Y.toFixed(1)}" x2="${L + pw}" y2="${Y.toFixed(1)}" stroke="var(--line-2)"/>`);
+    o.push(`<text x="${L - 9}" y="${(Y + 4).toFixed(1)}" text-anchor="end" font-size="11" fill="var(--muted)">${v.toFixed(sty < 1 ? 1 : 0)}</text>`);
+  }
+  o.push(`<rect x="${L}" y="${T}" width="${pw}" height="${ph}" fill="none" stroke="var(--line)"/>`);
+  // 零线：能量参考
+  if (lo < 0 && hi > 0) {
+    const Y = sy(0);
+    o.push(`<line x1="${L}" y1="${Y.toFixed(1)}" x2="${L + pw}" y2="${Y.toFixed(1)}" stroke="var(--faint)" stroke-dasharray="4 3"/>`);
+  }
+
+  ms.forEach((m, i) => {
+    const c = STK_C[i % STK_C.length];
+    const pts = m.rows.map(r => `${sx(r.gap).toFixed(1)},${sy(r.Eb_meV_atom).toFixed(1)}`).join(" ");
+    o.push(`<polyline points="${pts}" fill="none" stroke="${c}" stroke-width="1.6" stroke-linejoin="round"/>`);
+    m.rows.forEach(r => {
+      o.push(`<circle cx="${sx(r.gap).toFixed(1)}" cy="${sy(r.Eb_meV_atom).toFixed(1)}" r="2.2" fill="${c}"/>`);
+    });
+    // 极小点
+    const X = sx(m.gap_min), Y = sy(m.Eb_min_meV_atom);
+    o.push(`<circle cx="${X.toFixed(1)}" cy="${Y.toFixed(1)}" r="4.2" fill="#fff" stroke="${c}" stroke-width="2"/>`);
+    o.push(`<text x="${X.toFixed(1)}" y="${(Y - 10).toFixed(1)}" text-anchor="middle" font-size="10.5" fill="${c}">${m.Eb_min_meV_atom.toFixed(1)}</text>`);
+    // 弛豫后的点（星形）
+    if (m.relaxed) {
+      const RX = sx(m.gap_min), RY = sy(m.relaxed.Eb_meV_atom);
+      const s = 5;
+      o.push(`<path d="M${RX} ${RY - s} L${RX + s * 0.3} ${RY - s * 0.3} L${RX + s} ${RY} L${RX + s * 0.3} ${RY + s * 0.3} L${RX} ${RY + s} L${RX - s * 0.3} ${RY + s * 0.3} L${RX - s} ${RY} L${RX - s * 0.3} ${RY - s * 0.3} Z" fill="${c}" opacity=".85"/>`);
+      o.push(`<text x="${(RX + 8).toFixed(1)}" y="${(RY + 4).toFixed(1)}" font-size="10.5" fill="${c}">${m.relaxed.Eb_meV_atom.toFixed(1)}</text>`);
+    }
+    // 图例
+    const ly = T + 12 + i * 16;
+    o.push(`<line x1="${L + pw - 96}" y1="${ly}" x2="${L + pw - 76}" y2="${ly}" stroke="${c}" stroke-width="2"/>`);
+    o.push(`<text x="${L + pw - 70}" y="${ly + 4}" font-size="11" fill="var(--muted)">${m.label}</text>`);
+  });
+
+  o.push(`<text x="${L + pw / 2}" y="${H - 8}" text-anchor="middle" font-size="12" fill="var(--text)">${t("stk.gap")}</text>`);
+  o.push(`<text x="18" y="${T + ph / 2}" text-anchor="middle" font-size="12" fill="var(--text)" transform="rotate(-90 18 ${T + ph / 2})">${t("stk.ebAtom")}</text>`);
+  o.push("</svg>");
+  return o.join("");
+}
+
+
 // 只传 i18n key，不传成品字符串：切语言时这里能原地重画
 function setStatus(key, kind, vars) {
   S.status = {key, kind, vars};
@@ -1802,6 +2212,8 @@ function onPotChange() {
   $("#potHint").textContent = v === "qcof"
     ? t("potHint.qcof")
     : (v === "mace-mp" ? t("potHint.mp") : t("potHint.off"));
+  // QCOF 没有长程色散，算层间会得到近乎 0 或正的结合能 —— 先提醒，别让人白等
+  $("#stkTip").classList.toggle("hidden", v !== "qcof");
 }
 
 // 在优化页换文件时顺手预览，省得"这个文件到底是什么"要靠猜

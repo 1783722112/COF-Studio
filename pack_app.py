@@ -2,11 +2,14 @@
 """把 dist 出来的 "COF Studio" 文件夹压成一个可分享的 zip。
 
 用法（在 COF_Studio 目录下）：
-    python pack_app.py
+    python pack_app.py                                  # 默认 ../COF Studio
+    python pack_app.py --src .build_dist/"COF Studio"   # 从临时构建目录打包
+
 产物：桌面/COF Studio 桌面版.zip
 
 注意：中文文件名要显式标 UTF-8 标志位，否则对方用 WinRAR / 7-Zip 解压会乱码。
 """
+import argparse
 import os
 import sys
 import time
@@ -14,8 +17,17 @@ import zipfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-SRC = HERE.parent / "COF Studio"
-OUT = HERE.parent / "COF Studio 桌面版.zip"
+DESKTOP = HERE.parent
+
+ap = argparse.ArgumentParser()
+ap.add_argument("--src", default=str(DESKTOP / "COF Studio"),
+                help="要打包的应用目录")
+ap.add_argument("--out", default=str(DESKTOP / "COF Studio 桌面版.zip"),
+                help="输出的 zip 路径")
+args = ap.parse_args()
+
+SRC = Path(args.src)
+OUT = Path(args.out)
 
 if not SRC.is_dir():
     sys.exit(f"找不到 {SRC}，先跑 build_exe.bat 打包。")
@@ -37,7 +49,7 @@ print(f"打包 {len(files)} 个文件 -> {OUT.name}")
 t0 = time.time()
 with zipfile.ZipFile(OUT, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as z:
     for i, p in enumerate(files, 1):
-        arc = Path("COF Studio") / p.relative_to(SRC)
+        arc = Path(SRC.name) / p.relative_to(SRC)
         z.write(p, arc.as_posix())
         if i % 1000 == 0:
             print(f"  {i}/{len(files)} …")
