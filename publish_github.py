@@ -190,6 +190,8 @@ def main() -> None:
     ap.add_argument("--notes", default="", help="Release 说明")
     ap.add_argument("--create-repo", action="store_true", help="没有仓库就先建一个公开的")
     ap.add_argument("--no-release", action="store_true", help="只推源码，不建 Release")
+    ap.add_argument("--no-push", action="store_true",
+                    help="跳过 git push（网络不通或源码已用别的方式推上去时用）")
     ap.add_argument("--desc", default="COF Studio：COF 结构建模与势函数优化（本地网页界面）")
     args = ap.parse_args()
 
@@ -198,7 +200,8 @@ def main() -> None:
 
     if args.create_repo:
         ensure_repo_created(args.repo, args.desc)
-    push_source(args.repo, ver)
+    if not args.no_push:
+        push_source(args.repo, ver)
     if args.no_release:
         return
     rel = make_release(args.repo, ver, args.notes)
