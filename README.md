@@ -206,10 +206,11 @@ pip install torch --index-url https://download.pytorch.org/whl/cu121
 ## 在线更新
 
 exe 里带了一个更新器，**已经装好的人不用重新拷 70 MB**。
-「设置 → 版本与更新」里填一次更新源，以后点「检查更新」就行。
+更新源**已经预填**，打开「设置 → 版本与更新」点
+「检查更新」就能用，不需要配置。
 
 ```
-https://github.com/你的账号/COF-Studio/releases/latest/download
+https://github.com/1783722112/COF-Studio/releases/latest/download
 ```
 
 分两级：

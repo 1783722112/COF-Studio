@@ -164,7 +164,9 @@ DEFAULT_CONFIG = {
     # 8770 被占用时后端会换端口，用户选的英文下次就丢了。
     "ui_lang": "",
     # 更新源目录：共享盘（\\NAS\COF\update）、本机路径或 http 地址
-    "update_url": "",
+    # 预填发布者的更新源，装完不用手输地址就能"检查更新"。
+    # 想换成局域网镜像，在 设置 → 版本与更新 里改（可填多个，换行分隔）。
+    "update_url": "https://github.com/1783722112/COF-Studio/releases/latest/download",
 }
 
 APP_VERSION = "1.2.0"
@@ -330,10 +332,22 @@ def _fetch_bytes(url: str, limit: int = 400 * 1024 * 1024) -> bytes:
     u = url.strip()
     if u.lower().startswith(("http://", "https://")):
         import urllib.request
-        req = urllib.request.Request(
-            u, headers={"User-Agent": "COFStudio/" + current_version()})
-        with urllib.request.urlopen(req, timeout=120) as r:
-            blob = r.read(limit + 1)
+        # 先按系统默认（可能走用户的代理——国内访问 GitHub 往往必须走），
+        # 失败再禁掉代理直连试一次。两条路都不通才算失败。
+        # 注意重试必须新建 Request：第一次失败会在 req 上残留 _tunnel_host，
+        # 复用对象会让"禁代理"的 opener 仍然走代理隧道。
+        try:
+            req = urllib.request.Request(
+                u, headers={"User-Agent": "COFStudio/" + current_version()})
+            with urllib.request.urlopen(req, timeout=120) as r:
+                blob = r.read(limit + 1)
+        except Exception:
+            req = urllib.request.Request(
+                u, headers={"User-Agent": "COFStudio/" + current_version()})
+            direct = urllib.request.build_opener(
+                urllib.request.ProxyHandler({}))   # 空 handler = 禁代理
+            with direct.open(req, timeout=120) as r:
+                blob = r.read(limit + 1)
     else:
         if u.lower().startswith("file://"):
             u = unquote(urlparse(u).path)

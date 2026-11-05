@@ -67,9 +67,17 @@ def api(method: str, path: str, body=None, ok=(200, 201), raw: bytes = None,
         "Content-Type": ctype,
     })
     try:
-        with urllib.request.urlopen(req, timeout=600) as r:
-            txt = r.read()
-            return json.loads(txt) if txt else {}
+        # 先按系统默认（可能走用户代理），失败再禁代理直连——和客户端
+        # _fetch_bytes 同一套思路，国内网络两头都得备着
+        try:
+            with urllib.request.urlopen(req, timeout=600) as r:
+                txt = r.read()
+        except Exception:
+            direct = urllib.request.build_opener(
+                urllib.request.ProxyHandler({}))
+            with direct.open(req, timeout=600) as r:
+                txt = r.read()
+        return json.loads(txt) if txt else {}
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", "replace")[:500]
         if e.code in ok:
@@ -131,6 +139,8 @@ def make_release(repo: str, ver: str, notes: str) -> dict:
         old = api("GET", f"/repos/{repo}/releases/tags/{tag}")
         print(f"Release {tag} 已存在，先删掉重建")
         api("DELETE", f"/repos/{repo}/releases/{old['id']}", ok=(204,))
+        # tag 引用留着的话，新 Release 会复用指向旧提交的 tag；一并删掉
+        api("DELETE", f"/repos/{repo}/git/refs/tags/{tag}", ok=(204,))
     except RuntimeError:
         pass
     rel = api("POST", f"/repos/{repo}/releases", {
