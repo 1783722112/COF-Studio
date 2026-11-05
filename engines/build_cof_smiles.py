@@ -68,6 +68,7 @@ from rdkit.Chem import rdMolTransforms
 #     COF_CHECK_MONOMER=0 python cof_builder.py ...     关掉
 CHECK_MONOMER = os.environ.get("COF_CHECK_MONOMER", "1") == "1"
 MONOMER_CHECKS = []          # 本进程内所有单体的体检结果，上层可读取
+SYM_HCB = [False]            # 本次装配是否走了"C3 旋转复制连接子"的对称路径
 
 # 单体点群对称化（默认开）：自检不达标时把骨架投影回 C_n 再装配。
 # 关掉就退回旧行为——构象带多少破缺，整层就有多少破缺。
@@ -1956,6 +1957,26 @@ def build(node_smiles, linker_smiles, topology="auto", bond=1.34, c=3.60,
                                      [t + 180.0 for t in tA], [0.0, L, 0.0])
                 frames = [pA, pB]
                 parts = [link(to_vec(t), pA[ci], ci) for t, ci in zip(tA, asgA)]
+                # 蜂窝网的三条边绕节点 A 的三重轴严格等价。逐边独立放置时，
+                # 连接子自身的面内弯折（苯环偏转、噻吩取向）会随"最短弧旋转"
+                # 落到不同方位，C3 对称就是这么破的：实测 S-COF（三嗪 + 双醛
+                # 噻吩）一条臂偏 +10°、另两条 ±3°，120° 转过去最大差 3.4 Å，
+                # 后面 lattice_sym 想投影都因残差 3.2 Å 拒收。
+                # 这里先检查三条臂是不是严格的 120°（单体对称化之后应当是）：
+                # 是，就记下方案，等下面"氢翻转"检查结束后用第一条连接子转
+                # ±120° 生成另外两条——必须放在那之后，否则逐片翻转又会把
+                # 对称破掉（翻转判据只看胞内节点，不看周期像，三条连接子
+                # 的翻与不翻可能不一致）。单体破缺时保留原路径。
+                _az = np.array([np.arctan2(to_vec(t)[1], to_vec(t)[0])
+                                for t in tA])
+                _k = int(np.argmin(_az))
+                _rel = np.sort(np.degrees((_az - _az[_k]) % (2.0 * np.pi)))
+                c3plan = None
+                if (len(parts) == 3 and abs(_rel[1] - 120.0) < 1.0
+                        and abs(_rel[2] - 240.0) < 1.0):
+                    c3plan = (_k, pA[list(fA["conn"])].mean(axis=0),
+                              [(j, float(np.degrees(_az[j] - _az[_k])))
+                               for j in range(len(parts)) if j != _k])
                 errs = [eA, eB]
                 a = L * np.sqrt(3.0) * scale_a
                 cell = np.array([[a, 0.0, 0.0],
@@ -1997,6 +2018,14 @@ def build(node_smiles, linker_smiles, topology="auto", bond=1.34, c=3.60,
                         _Q[_hs][:, None, :] - _fp[None, :, :], axis=-1).min()
                     if _dQ > _dP + 0.05:
                         parts[_k] = _Q
+
+            # C3 对称装配：放在氢翻转之后（见 hcb 分支里的注释）
+            if topology == "hcb" and c3plan is not None:
+                _kc, _cen, _rot = c3plan
+                _p0 = parts[_kc]
+                for _j, _a in _rot:
+                    parts[_j] = (rot_z(_a) @ (_p0 - _cen).T).T + _cen
+                SYM_HCB[0] = True
 
             symbols = fA["sym"] * len(frames) + fB["sym"] * len(parts)
             positions = np.vstack(frames + parts)
@@ -2056,6 +2085,7 @@ def build(node_smiles, linker_smiles, topology="auto", bond=1.34, c=3.60,
             return 100.0 * min(dmin, 1.30) + 0.01 * min(ang, 120.0)
 
         best = None
+        SYM_HCB[0] = False
         for tl in tilt_cands:
             cand, ci_, spec = assemble(tl)
             _h = add_conn_hydrogens(cand, spec)
@@ -2070,6 +2100,11 @@ def build(node_smiles, linker_smiles, topology="auto", bond=1.34, c=3.60,
             if best is None or sc > best[0]:
                 best = (sc, cand, ci_, spec)
         _, atoms, info, conn_spec = best
+
+        if verbose and SYM_HCB[0]:
+            info["c3_sym"] = True
+            print("[装配] 三条臂严格 120°，连接子由第一条旋转 ±120° 生成"
+                  "（整层天生 C3，不再依赖事后对称化）")
 
         if verbose and info["c_grown"]:
             print(f"[提示] 单层厚度 {info['thickness']:.2f} Å，"

@@ -172,7 +172,7 @@ DEFAULT_CONFIG = {
     "update_url": "https://github.com/1783722112/COF-Studio/releases/latest/download",
 }
 
-APP_VERSION = "1.3.3"
+APP_VERSION = "1.3.4"
 
 # 这几个才是路径，load_config 的"路径还活着吗"自愈只该管它们。
 PATH_KEYS = ("engine_build_3d", "engine_build_2d", "engine_opt", "engine_stack",
