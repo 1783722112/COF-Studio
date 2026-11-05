@@ -1,0 +1,21 @@
+# 构建环境：每台机器自己建，体积 400 MB，不进仓库
+.build_env/
+.build_tmp/
+runtime/
+
+# 发布产物：放在 GitHub Release 里，不进 git
+release/
+
+# 运行产物
+work/
+config.json
+*.log
+
+# Python
+__pycache__/
+*.pyc
+
+# 备份与临时目录
+_trash*/
+_old_COF Studio*/
+engines_bak_1104/
