@@ -175,7 +175,7 @@ DEFAULT_CONFIG = {
     "cors_origins": "",
 }
 
-APP_VERSION = "1.6.2"
+APP_VERSION = "1.6.3"
 
 # 这几个才是路径，load_config 的"路径还活着吗"自愈只该管它们。
 PATH_KEYS = ("engine_build_3d", "engine_build_2d", "engine_opt", "engine_stack",

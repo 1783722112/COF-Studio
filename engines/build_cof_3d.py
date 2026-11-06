@@ -72,6 +72,19 @@ ctn 的 4-c 位点在 C2 轴上，四个邻居的夹角是 97.5° / 137.6°，�
     boronate    硼酸 + 邻二酚 → 硼酸酯 + 2H2O （条目在，未实测）
     ketoenamine 醛 + 胺 → β-酮烯胺（需互变异构，未实测）
 
+1.6.3 的两处改进
+--------------------------------------------------------------------------
+* **四臂节点的 Td 理想化**：MMFF 优化四苯甲烷这类拥挤的 sp3 中心会收敛到
+  偏 D2d 的极小值（实测 C(中心)–C(ipso) 是 102/113°，不是 109.5°）。臂角
+  跟着偏 8°，对齐到 dia 的 Td 位点上就只能最小二乘折中，C=N 被拉长到
+  1.34 Å（TAM）甚至 1.47 Å（四苯甲烷四醛）。现在生成单体后把中心四根键
+  摆回标准四面体（整臂平移 + 绕 ipso 自转，环内几何不动），dia 体系的
+  C=N 回到 1.28 Å。
+* **部分缝合**：4-c 位点夹角与单体臂角差太多时（如长臂 Td 节点进 ctn），
+  原来整段回退，写出的是键长 3 Å 的纯拓扑位置。现在按碰撞阈值把缝合目标
+  往回收，取"能连上又不把原子压到一起"的最短键长（实测 1.45 Å 而不是
+  2.98 Å），弛豫更好收敛。
+
 作者备注
 --------
 * 所有距离都走最小镜像（MIC），立方/四方晶胞下准确。
@@ -369,6 +382,10 @@ class Monomer:
         if self.kind == "ketone":
             self._enolize(mol, conn, pos, sym, drop)
 
+        # 四臂四面体节点：把中心原子的四根键摆回 109.5°
+        if len(conn) == 4:
+            self._idealize_td(mol, conn, pos)
+
         drop = sorted(set(drop))
         keep = [i for i in range(len(sym)) if i not in drop]
 
@@ -382,6 +399,95 @@ class Monomer:
         self.arm_len = np.linalg.norm(self.arms, axis=1)
         self.arm_dirs = self.arms / self.arm_len[:, None]
         self.n_conn = len(self.conn)
+
+    def _idealize_td(self, mol, conn, pos):
+        """把四臂节点的中心原子摆成标准 Td（109.47°）。
+
+        为什么需要：MMFF/UFF 优化四苯甲烷这类拥挤的 sp3 中心时，会收敛到
+        一个偏 D2d 的极小值 —— 实测 TAM 的 C(中心)–C(ipso) 键角是
+        102.0 / 113.3 / 113.3 / 113.4 / 113.4 / 101.8°，不是 109.5°。
+        臂角跟着偏，对齐到 dia 的 Td 位点上就永远差 8° 左右，缝合只能取
+        最小二乘折中：C=N 被拉长到 1.34 Å（TAM）甚至 1.47 Å（四苯甲烷四醛）。
+        这个偏差是力场的，不是分子的：晶体里的四苯甲烷就是 Td。
+
+        做法（只动四根"臂"的刚体位置，环内几何一根键都不改）：
+          1. 找中心：sp3 的 C/Si，四个邻居都是芳香碳；
+          2. 四个臂方向用 Kabsch 对齐到理想四面体，得到目标方向；
+          3. 每个臂先整体平移到 中心 + L·目标方向（L 是中心–ipso 键长）；
+          4. 再绕 ipso 碳自转，让环的对位轴重新对准目标方向 ——
+             这样 C(中心)–C(ipso) 键与苯环的对位轴仍然共线，不是硬掰。
+        """
+        cen = None
+        for a in mol.GetAtoms():
+            if a.GetSymbol() not in ("C", "Si") or a.GetIsAromatic():
+                continue
+            if a.GetDegree() != 4:
+                continue
+            nbrs = [n.GetIdx() for n in a.GetNeighbors()]
+            if not all(mol.GetAtomWithIdx(i).GetIsAromatic() for i in nbrs):
+                continue
+            cen = a.GetIdx()
+            break
+        if cen is None:
+            return
+
+        ipso = [n.GetIdx() for n in mol.GetAtomWithIdx(cen).GetNeighbors()]
+        arms = []
+        for ip in ipso:
+            frag = self._fragment(mol, ip, cen)
+            hit = [c for c in conn if c in frag]
+            if len(hit) != 1:
+                return                        # 臂里不是恰好一个连接点 → 不动
+            arms.append((ip, frag, hit[0]))
+
+        cur = np.array([pos[c] - pos[cen] for _i, _f, c in arms])
+        cur /= np.linalg.norm(cur, axis=1)[:, None]
+        ideal = np.array([[1, 1, 1], [1, -1, -1], [-1, 1, -1], [-1, -1, 1]],
+                         float) / np.sqrt(3)
+        R = kabsch(ideal, cur)                # ideal @ R ≈ cur
+        target = ideal @ R
+
+        L = float(np.mean([np.linalg.norm(pos[ip] - pos[cen])
+                           for ip, _f, _c in arms]))
+        for (ip, frag, c), d in zip(arms, target):
+            # 对位碳（连接点直接挂在它上面）
+            para = [n.GetIdx() for n in mol.GetAtomWithIdx(c).GetNeighbors()
+                    if n.GetIsAromatic()]
+            if len(para) != 1:
+                return
+            para = para[0]
+            new_ip = pos[cen] + L * d
+            frag_arr = np.array(frag)
+            pos[frag_arr] += (new_ip - pos[ip])          # 1) 整臂平移
+            v0 = pos[para] - pos[ip]                     # 2) 绕 ipso 自转
+            v0 /= np.linalg.norm(v0)
+            axis = np.cross(v0, d)
+            na = np.linalg.norm(axis)
+            if na < 1e-8:
+                continue
+            axis /= na
+            th = float(np.arccos(np.clip(v0 @ d, -1, 1)))
+            K = np.array([[0, -axis[2], axis[1]],
+                          [axis[2], 0, -axis[0]],
+                          [-axis[1], axis[0], 0]])
+            Rot = np.eye(3) + np.sin(th) * K + (1 - np.cos(th)) * (K @ K)
+            others = [i for i in frag if i != ip]
+            pos[others] = (pos[others] - pos[ip]) @ Rot.T + pos[ip]
+
+    @staticmethod
+    def _fragment(mol, start, blocked):
+        """从 start 出发的连通片段（不经过 blocked）。"""
+        seen = {start}
+        stack = [start]
+        while stack:
+            i = stack.pop()
+            for n in mol.GetAtomWithIdx(i).GetNeighbors():
+                j = n.GetIdx()
+                if j in seen or j == blocked:
+                    continue
+                seen.add(j)
+                stack.append(j)
+        return sorted(seen)
 
     def _enolize(self, mol, conn, pos, sym, drop):
         """甲基酮 → 烯醇式：Ar-C(=O)-CH3 变成 Ar-C(=CH2)-。
@@ -1439,27 +1545,57 @@ def run(args):
                built["cell"], linkage["bond"])
         d_after = min_pair_distance(built["groups"], built["cell"])
         if d_after < 0.85 and not args.force_stitch:
-            for g, b in zip(built["groups"], backup):
-                g["cart"] = b
-            print(f"  [已回退] 缝合后最近原子间距只有 {d_after:.2f} Å，"
-                  f"分子被挤到一起了。")
-            if cell_ok:
-                print(f"  这不是缝合算法的问题：a = {args.cell:.2f} Å 装不下这两个单体。")
-                try:
-                    a_fit, _be2, _dm2, ok2 = fit_cell(node, linker, topo, linkage,
-                                                      verbose=False)
-                    if ok2 and abs(a_fit - args.cell) > 0.05:
-                        print(f"  建议晶胞： -a {a_fit:.2f}    "
-                              f"（已实测：键能连上、原子不重叠）")
-                    else:
-                        print(f"  换个晶胞也解决不了，原因见上面 1.5 节的警告。")
-                except Exception:
-                    print(f"  建议改成 -a auto，让脚本自己找合适的晶胞。")
+            # 不要整个回退到"纯拓扑位置"（那里键长 3 Å，弛豫时冲击很大）。
+            # 按碰撞阈值把缝合目标往回收：找**能连上、又不把原子压到一起**的
+            # 最短键长。实测 TAM + TFB（ctn）：目标 1.28 时最近间距 0.72 Å，
+            # 目标 1.50 时 1.06 Å —— 1.50 Å 的 C=N 比 2.98 Å 好救得多。
+            good_t, good_bond, good_d = None, None, None
+            for t in (1.35, 1.45, 1.55, 1.7, 1.9, 2.1, 2.4):
+                if t <= linkage["bond"]:
+                    continue
+                for g, b in zip(built["groups"], backup):
+                    g["cart"] = b.copy()
+                stitch(built["groups"], built["m_acc"], built["m_donor"],
+                       built["cell"], t, verbose=False)
+                d = min_pair_distance(built["groups"], built["cell"])
+                if d >= 0.95:
+                    edges_t = edge_table(built["groups"], built["m_acc"],
+                                         built["m_donor"], built["cell"])
+                    vals = [np.linalg.norm(mic_cart(
+                        built["groups"][j]["cart"][built["groups"][j]["mono"].conn[l]],
+                        built["groups"][i]["cart"][built["groups"][i]["mono"].conn[k]],
+                        built["cell"])) for i, k, j, l in edges_t]
+                    good_t, good_bond, good_d = t, float(np.mean(vals)), d
+                    break
+            if good_t is None:
+                for g, b in zip(built["groups"], backup):
+                    g["cart"] = b
+                print(f"  [已回退] 缝合后最近原子间距只有 {d_after:.2f} Å，"
+                      f"分子被挤到一起了。")
             else:
-                print(f"  原因见 1.5 节：「单体臂角和 ctn 位点夹角差太多」，"
-                      f"没有两全的晶胞。")
-            print(f"  当前写出的结构是纯拓扑位置（键长偏大），"
-                  f"想强行缝合加 --force-stitch。")
+                print(f"  [部分缝合] 目标 {linkage['bond']:.2f} Å 会把原子压到 "
+                      f"{d_after:.2f} Å，退让到 {good_t:.2f} Å："
+                      f"实际 {good_bond:.3f} Å、最近间距 {good_d:.2f} Å。")
+                print(f"             比纯拓扑位置（{linkage['bond']:.2f} → 3 Å 附近）"
+                      f"更接近成键，弛豫更好收敛。")
+            if good_t is None:
+                if cell_ok:
+                    print(f"  这不是缝合算法的问题：a = {args.cell:.2f} Å 装不下这两个单体。")
+                    try:
+                        a_fit, _be2, _dm2, ok2 = fit_cell(node, linker, topo, linkage,
+                                                          verbose=False)
+                        if ok2 and abs(a_fit - args.cell) > 0.05:
+                            print(f"  建议晶胞： -a {a_fit:.2f}    "
+                                  f"（已实测：键能连上、原子不重叠）")
+                        else:
+                            print(f"  换个晶胞也解决不了，原因见上面 1.5 节的警告。")
+                    except Exception:
+                        print(f"  建议改成 -a auto，让脚本自己找合适的晶胞。")
+                else:
+                    print(f"  原因见 1.5 节：「单体臂角和 ctn 位点夹角差太多」，"
+                          f"没有两全的晶胞。")
+                print(f"  当前写出的结构是纯拓扑位置（键长偏大），"
+                      f"想强行缝合加 --force-stitch。")
 
     banner("2.6  连接位氢按最终键角重摆")
     repair_linkage_h(built["groups"], built["m_acc"], built["m_donor"],
