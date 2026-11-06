@@ -191,6 +191,30 @@ def layer_count(atoms, n=None, gap=1.5):
     return max(1, int((gaps > gap).sum()))
 
 
+def is_3d_framework(atoms, tol=0.15):
+    """三维骨架（dia / ctn 这类立方胞）：三个轴尺度相当，没有"层"可言。
+
+    2D COF 的 c 是层间距（3.5 Å）或层 + 真空（20+ Å），永远比 a、b 偏一大截；
+    三维骨架是立方胞，a≈b≈c。
+
+    为什么要单独判：整套"补真空 / 抽真空"逻辑都假设 c 方向是层堆垛。拿一个
+    a=b=c=33.73 的 ctn 胞进去，layer_count() 看到沿法向只有一个"层"（本来
+    就没有层），于是走单层分支：把 33.73 当成"层间距"、减掉 14 Å 的"层厚"
+    得到 19 Å，判定"输入带真空"，输出时按 c = 层厚 + 3.45 改写成 17.6 Å ——
+    骨架直接被压扁一半，而日志还会写"已去掉真空"。
+
+    判 3D 就跳过补真空和抽真空两段，晶胞原样进出。
+    """
+    try:
+        cp = atoms.cell.cellpar()
+    except Exception:
+        return False
+    a, b, c = float(cp[0]), float(cp[1]), float(cp[2])
+    if min(a, b, c) < 1e-6:
+        return False
+    return abs(c - a) < tol * a and abs(c - b) < tol * a
+
+
 def layer_thickness(atoms, n=None):
     """层厚：沿层法向覆盖所有原子的最短弧长（Å）。
 
@@ -901,7 +925,8 @@ def make_calculator(args, atoms):
     elif r_max and d_lay < r_max + 1.0:
         print(f"[提示] 单层，周期 {d_lay:.2f} Å < 截断 {r_max:.1f} Å —— 计算时"
               f"会临时补真空（不然镜像被当成成键，必炸）。")
-        if args.no_vacuum:
+        # getattr 兜底：stack_energy 等旁路调用方手工拼 args，可能没有这个字段
+        if getattr(args, "no_vacuum", False):
             print("       你加了 --no-vacuum，就按原样算（能量/受力很可能不可信）。")
         else:
             print("       这层真空只在计算里用，输出会还原成你的紧凑晶胞。")
@@ -1131,9 +1156,14 @@ def main():
     # 实测 LZU-1-Me（c=5.089、层厚 1.79）就因为这个差 0.09 Å 的判据没补真空，
     # 阶段 2 一路塌到 500 步、力 2882 eV/Å。
     gap_in = max(0.0, d_in - th_in)
+    is_3d = is_3d_framework(atoms)
     auto_vac = (args.vacuum is None and not args.no_vacuum
-                and not keep_stack
+                and not keep_stack and not is_3d
                 and r_max and gap_in < r_max + 1.0)
+    if is_3d:
+        par3 = atoms.cell.cellpar()
+        print(f"\n三维骨架：a={par3[0]:.2f} b={par3[1]:.2f} c={par3[2]:.2f} Å "
+              f"（三轴相当，不按层处理）—— 不补真空、也不抽真空，晶胞原样进出。")
     if nl_in >= 2:
         print(f"\n多层结构：{nl_in} 层/晶胞，沿法向周期 {d_in:.3f} Å —— 按原样算，不补真空。")
 
@@ -1237,7 +1267,22 @@ def main():
                     abs(par[5] - ang_fix[2]))
         need_ab = abs(par[0] - par[1]) > 1e-3
         need_ang = d_ang > 0.02
-        if need_ab or need_ang:
+        if is_3d:
+            # 立方胞本应 a=b=c：阶段 2 的三个方向是独立应变的，会各自漂一点点，
+            # 这里取三轴平均恢复等轴，而不是只把 a、b 扯平（那样 c 会单独跑偏）。
+            abc = (par[0] + par[1] + par[2]) / 3.0
+            drift = max(abs(par[0] - abc), abs(par[1] - abc), abs(par[2] - abc))
+            if drift > 1e-3:
+                print(f"\n>>> 阶段 3：三维骨架三轴 {par[0]:.3f}/{par[1]:.3f}/"
+                      f"{par[2]:.3f} → {abc:.3f}（恢复立方对称）")
+                atoms.set_cell(cellpar_to_cell([abc, abc, abc, 90.0, 90.0, 90.0]),
+                               scale_atoms=True)
+                opt_final = BFGS(atoms, logfile=log3)
+                opt_final.run(fmax=args.cell_fmax, steps=200)
+                made.append(log3)
+            else:
+                print("\n>>> 阶段 3：三维骨架三轴已一致，跳过")
+        elif need_ab or need_ang:
             ab = 0.5 * (par[0] + par[1])
             msg = []
             if need_ab:
@@ -1294,7 +1339,7 @@ def main():
     out_atoms = atoms
     c_out = None
     c_from_vac = False
-    if not args.keep_vacuum:
+    if not args.keep_vacuum and not is_3d:
         nl_out = layer_count(atoms)
         if nl_out == 1:
             th_out = layer_thickness(atoms)
@@ -1345,6 +1390,8 @@ def main():
     elif nl_out >= 2:
         print(f"  层间距   {d_in / nl_in:6.3f} → {interlayer_spacing(atoms) / nl_out:6.3f} Å"
               f"   （{nl_out} 层/晶胞，沿层法向）")
+    elif is_3d:
+        print("  晶胞     三维骨架按原样保留（不抽真空、不压 c）")
     print(f"  能量   {e0:9.4f} → {e1:9.4f} eV   (Δ={e1 - e0:+.4f} eV, "
           f"{(e1 - e0) / len(atoms) * 1000:+.2f} meV/atom)")
     print(f"  原子位移 RMS {rms:.3f} Å，最大 {float(np.sqrt((dx ** 2).sum(axis=1)).max()):.3f} Å")

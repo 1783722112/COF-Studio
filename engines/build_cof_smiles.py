@@ -542,12 +542,19 @@ def idealize_sp_sp(pos, mol, target=1.375, tol=0.02):
 
 
 # ---------------------------------------------------------------- 单体准备
-def prepare(smiles, n_expected, flatten=False, seed=20261018, n_trials=4):
+def prepare(smiles, n_expected, flatten=False, seed=20261018, n_trials=4,
+            force_flat=False):
     """SMILES → 封端补氢 → 3D 嵌入 → 力场优化 → 摘掉封端原子。
 
     关键：连接原子在真实框架里要成键，直接删掉 * 会留下自由基，导致
     ETKDG/MMFF 严重失真（键长被压到 0.8 Å）。所以先把 * 换成 H 生成一个
     完整的闭壳层分子做优化，最后再把这些封端 H 去掉，只保留坐标。
+
+    force_flat: 无条件把外围芳环绕 ipso–para 轴转进平面（刚体旋转，键长零
+    变化）。四芳基大环节点（卟啉、酞菁）用得上：它们的 meso-苯基在真实构象
+    里垂直大环，ETKDG 也照此嵌入，而"整分子投影"压平会把垂直的环压成一条
+    线、键长变化 40% 以上，被 project_planar 的应变守卫挡回来。绕轴转环既
+    能落到平面又不改键长，是这类节点唯一无损的平面化方式。
 
     返回 (符号, 坐标, 连接原子索引, 连接原子原有氢数, 连接键方向)。
     """
@@ -635,6 +642,12 @@ def prepare(smiles, n_expected, flatten=False, seed=20261018, n_trials=4):
             d0 = unit(pos[conn_old[0]] - cc)
             d1 = unit(pos[conn_old[1]] - cc)
             flatten_rings(m, pos, cap=dummies, normal=unit(np.cross(d0, d1)))
+
+    if force_flat and len(conn_old) >= 3:
+        # 强制转环：先做一次纯刚体旋转把每条臂末端的芳环转进节点平面。
+        # 不做这一步，后面的 project_planar 会因为"垂直的苯环投影后键长崩坏"而
+        # 放弃压平，整层带着 1~2 Å 起伏，最后被离面体检判为不可用。
+        _rings()
 
     if flatten:
         # 两种顺序各有擅长，而且**任何一步都可能把已经压平的结构弄歪**
@@ -1557,7 +1570,8 @@ ARM_ANGLES = {3: [90.0, 210.0, 330.0], 4: [0.0, 90.0, 180.0, 270.0]}
 
 
 def build(node_smiles, linker_smiles, topology="auto", bond=1.34, c=3.60,
-          scale_a=1.0, tilt=None, condense=True, verbose=True, allow_sp3=False):
+          scale_a=1.0, tilt=None, condense=True, verbose=True, allow_sp3=False,
+          ideal_flat=False):
     """搭建二维 COF 单层周期结构，返回 (ase.Atoms, 信息字典)。
 
     按两个单体的连接数自动选择装配模式：
@@ -1597,8 +1611,9 @@ def build(node_smiles, linker_smiles, topology="auto", bond=1.34, c=3.60,
                          f"做第二种节点需要和节点相同的 {nA} 个")
 
     # ---------- 两个单体的局部坐标系 ----------
-    def prep(smiles, n, flatten=False):
-        sym, pos, conn, n_h, cap = prepare(smiles, n, flatten=flatten)
+    def prep(smiles, n, flatten=False, force_flat=False):
+        sym, pos, conn, n_h, cap = prepare(smiles, n, flatten=flatten,
+                                           force_flat=force_flat)
         if n >= 3:
             project_planar(pos, sym, verbose=True)
         # 节点平面法向：由两条臂的方向叉乘（四条臂共面时就是层法向）。
@@ -1626,7 +1641,7 @@ def build(node_smiles, linker_smiles, topology="auto", bond=1.34, c=3.60,
         p1, dirs, od, r = node_frame(pos, conn, od)
         return dict(sym=sym, p1=p1, dirs=dirs, od=od, r=r, n_h=n_h, conn=conn)
 
-    fA = prep(node_smiles, nA, flatten=(nA >= 3))
+    fA = prep(node_smiles, nA, flatten=(nA >= 3), force_flat=ideal_flat)
     fB = prep(linker_smiles, nB, flatten=(mode == "edge" or nB >= 3))
 
     # 连接原子必须是 sp2（平面三角）。连着两个氢就是 CH2/CH3，四面体构型，

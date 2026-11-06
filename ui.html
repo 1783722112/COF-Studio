@@ -827,6 +827,29 @@ python -m pip install numpy ase torch mace-torch torch-dftd matplotlib scipy</co
 
 <script>
 /* ==========================================================================
+   网页版 API 基址
+   桌面版：页面由本机引擎自己伺服，__API_BASE__ 不存在，fetch 原样走相对路径。
+   网页版：界面托管在别处，make_web.py 注入 __API_BASE__ = "http://127.0.0.1:端口"，
+   在这里统一加前缀 —— 下面几十处 fetch("/api/…") 一个都不用改。
+   ========================================================================== */
+const API_BASE = (typeof window.__API_BASE__ === "string" ? window.__API_BASE__ : "")
+  .replace(/\/+$/, "");
+if (API_BASE) {
+  const _origFetch = window.fetch.bind(window);
+  window.fetch = function (input, init) {
+    try {
+      if (typeof input === "string" && input.startsWith("/api")) {
+        input = API_BASE + input;
+      } else if (input && typeof input === "object" && typeof input.url === "string"
+                 && input.url.startsWith("/api")) {
+        input = new Request(API_BASE + input.url, input);
+      }
+    } catch (e) { /* 原样发出，让上层按失败处理 */ }
+    return _origFetch(input, init);
+  };
+}
+
+/* ==========================================================================
    状态
    ========================================================================== */
 const S = {

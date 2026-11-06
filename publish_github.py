@@ -106,20 +106,88 @@ def ensure_repo_created(repo: str, desc: str) -> None:
     print(f"已新建公开仓库：{repo}")
 
 
-def push_source(repo: str, ver: str) -> None:
-    """初始化（若需要）、提交、推送。Token 只在命令行里出现，不写进 .git/config。"""
+def local_commit(ver: str) -> bool:
+    """把工作区改动提交到本地 main。返回是否真的产生了新提交。"""
     if not (HERE / ".git").is_dir():
         git("init", "-b", "main")
         print("已初始化 git 仓库")
     git("add", "-A")
     st = git("status", "--porcelain")
-    if st.stdout.strip():
-        git("-c", "user.name=COF Studio", "-c", "user.email=cof@localhost",
-            "commit", "-m", f"COF Studio {ver}")
-        print(f"已提交 {len(st.stdout.strip().splitlines())} 个变更")
-    else:
+    if not st.stdout.strip():
         print("工作区没有变更，跳过提交")
+        return False
+    git("-c", "user.name=COF Studio", "-c", "user.email=cof@localhost",
+        "commit", "-m", f"COF Studio {ver}")
+    print(f"已提交 {len(st.stdout.strip().splitlines())} 个变更")
+    return True
+
+
+def push_source_api(repo: str, ver: str) -> None:
+    """走 REST 的 Git Data API 提交源码（github.com:443 连不上时用）。
+
+    为什么需要这一条：git push 要连 github.com，很多网络里只有
+    api.github.com 可达（实测 github.com 直接超时，api 200）。API 不
+    走 git 协议，把文件按 blob 传上去、建一棵树、建一个提交就落库了。
+
+    比对基准不用本地历史，而是**远程当前那棵树**：逐文件比 blob sha
+    （`git hash-object` 算出来的和远程一模一样），只传真有差异的，
+    本地提交历史跟远程对不上也不影响。这样每次发版都在远程 HEAD 上
+    接一个提交，GitHub 那边永远是干净的直线。
+    """
+    import base64
+
+    ref = api("GET", f"/repos/{repo}/git/ref/heads/main")
+    head = ref["object"]["sha"]
+    base_tree = api("GET", f"/repos/{repo}/git/commits/{head}")["tree"]["sha"]
+    tree = api("GET", f"/repos/{repo}/git/trees/{base_tree}?recursive=1")
+    remote = {t["path"]: t["sha"] for t in tree["tree"] if t["type"] == "blob"}
+    print(f"远程 HEAD {head[:7]}：{len(remote)} 个文件")
+
+    local_commit(ver)               # 本地也留一条记录（推不上去也不丢）
+    # ls-files -s 直接给出暂存区的 mode + blob sha，省得再算一遍
+    tracked = {}
+    for line in git("ls-files", "-s").stdout.splitlines():
+        meta, path = line.split("\t", 1)
+        mode, sha, _stage = meta.split()
+        tracked[path] = (mode, sha)
+
+    entries = []
+    for path, (mode, sha) in tracked.items():
+        f = HERE / path
+        if not f.is_file():
+            continue
+        if remote.get(path) == sha:
+            continue
+        data = f.read_bytes()
+        blob = api("POST", f"/repos/{repo}/git/blobs", {
+            "content": base64.b64encode(data).decode("ascii"),
+            "encoding": "base64"})
+        entries.append({"path": path, "mode": mode, "type": "blob",
+                        "sha": blob["sha"]})
+        print(f"  {'~' if path in remote else '+'} {path}  "
+              f"{len(data) / 1024:.0f} KB")
+
+    for path in sorted(set(remote) - set(tracked)):
+        entries.append({"path": path, "mode": "100644", "type": "blob",
+                        "sha": None})
+        print(f"  − {path}")
+    if not entries:
+        print("远程内容已经是最新，没有要传的文件")
+        return
+
+    new_tree = api("POST", f"/repos/{repo}/git/trees",
+                   {"base_tree": base_tree, "tree": entries})["sha"]
+    new = api("POST", f"/repos/{repo}/git/commits", {
+        "message": f"COF Studio {ver}", "tree": new_tree, "parents": [head]})
+    api("PATCH", f"/repos/{repo}/git/refs/heads/main",
+        {"sha": new["sha"], "force": False})
+    print(f"已推送源码到 {repo}：{len(entries)} 个文件，提交 {new['sha'][:7]}")
+
+
+def push_source(repo: str, ver: str) -> None:
+    """初始化（若需要）、提交、推送。Token 只在命令行里出现，不写进 .git/config。"""
     url = f"https://x-access-token:{token()}@github.com/{repo}.git"
+    local_commit(ver)
     git("remote", "remove", "origin", check=False)
     git("remote", "add", "origin", url)
     try:
@@ -192,6 +260,9 @@ def main() -> None:
     ap.add_argument("--no-release", action="store_true", help="只推源码，不建 Release")
     ap.add_argument("--no-push", action="store_true",
                     help="跳过 git push（网络不通或源码已用别的方式推上去时用）")
+    ap.add_argument("--api-push", action="store_true",
+                    help="用 REST API 提交源码（github.com:443 连不上、只有 "
+                         "api.github.com 可达时用）")
     ap.add_argument("--desc", default="COF Studio：COF 结构建模与势函数优化（本地网页界面）")
     args = ap.parse_args()
 
@@ -200,7 +271,9 @@ def main() -> None:
 
     if args.create_repo:
         ensure_repo_created(args.repo, args.desc)
-    if not args.no_push:
+    if args.api_push:
+        push_source_api(args.repo, ver)
+    elif not args.no_push:
         push_source(args.repo, ver)
     if args.no_release:
         return

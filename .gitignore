@@ -1,6 +1,7 @@
 # 构建环境：每台机器自己建，体积 400 MB，不进仓库
 .build_env/
-.build_tmp/
+.build_tmp*/
+.build_dist*/
 runtime/
 
 # 发布产物：放在 GitHub Release 里，不进 git

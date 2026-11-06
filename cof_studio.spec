@@ -42,6 +42,10 @@ excludes = [
     "PyQt5", "PyQt6", "PySide2", "PySide6", "wx", "notebook", "nbformat",
     "sympy", "numba", "llvmlite", "torch", "mace", "setuptools", "pip",
     "distutils", "docutils", "jinja2", "sqlite3",
+    # jax / jaxlib：rdkit 新版依赖链会把 jaxlib 拉进来，光 jax_common.dll
+    # 就 240 MB，而 COF Studio 的 rdkit 用法（嵌构象、MMFF、子结构匹配）
+    # 全在 C++ 侧，根本不调 jax。不排除的话整包从 40 MB 涨到 148 MB。
+    "jax", "jaxlib", "jaxlib.mlir",
 ]
 
 a = Analysis(

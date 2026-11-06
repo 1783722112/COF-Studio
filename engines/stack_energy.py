@@ -191,6 +191,10 @@ def make_calc(args, atoms=None):
         potential=args.potential, model=args.model, model_file=args.model_file,
         allow_download=args.allow_download, device=args.device,
         dtype=args.dtype, no_dispersion=args.no_dispersion,
+        # opt_cof.make_calculator 会读 no_vacuum 决定要不要提示"补真空"。
+        # 本引擎自己管理真空（--vacuum，默认 20 Å），永远不让它替我们扩胞，
+        # 所以此处恒为 False；getattr 兜底是防 opt_cof 将来再加新参数时旧调用方被卡。
+        no_vacuum=bool(getattr(args, "no_vacuum", False)),
     )
     calc, label, _r = opt_cof.make_calculator(ns, atoms)
     return calc, label

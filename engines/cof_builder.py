@@ -1483,6 +1483,10 @@ def main():
     ap.add_argument("--allow-nonplanar", action="store_true",
                     help="骨架本身翘出平面也照写（四苯基 TTF、螺环这类节点天生是"
                          "螺旋桨形）。会提示褶皱幅度，结构仍然可用，只是层不平")
+    ap.add_argument("--ideal-flat", action="store_true",
+                    help="节点外围芳环绕 ipso–para 轴刚体转进平面（键长零变化）后再装配。"
+                         "四芳基大环节点（卟啉 TAPP/TFPP/TCPP、酞菁）用它：meso-苯基在真实"
+                         "构象里垂直大环，整分子投影压平会把环压坏，只有绕轴转环能无损落到平面")
     ap.add_argument("-o", "--out", default=None, help="输出文件名前缀，默认 cof")
     ap.add_argument("--check", metavar="CIF", default=None,
                     help="只体检一个已有的 CIF（成键/重叠/离面），不搭建")
@@ -1763,7 +1767,8 @@ def main():
                                 c=args.c, scale_a=args.scale_a,
                                 tilt=(args.tilt if args.tilt is not None else _tilt_hint),
                                 condense=False, verbose=not args.quiet,
-                                allow_sp3=args.allow_sp3)
+                                allow_sp3=args.allow_sp3,
+                                ideal_flat=args.ideal_flat)
     except ValueError as e:
         # 引擎抛出带换行的消息时，说明它自己已经把原因和改法讲清楚了
         # （sp3 连接位、臂角不合、臂长配不上），不要再叠一句泛泛的提示。

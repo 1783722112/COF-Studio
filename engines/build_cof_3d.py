@@ -161,6 +161,12 @@ LINKAGES = {
         "name": "β-酮烯胺",
         "equation": "Ar-CO-CH3 + H2N-Ar' -> Ar-C(=CH)-NH-Ar' + H2O",
         "donor": "ketone",
+        # Tp（2,4,6-三羟基-1,3,5-三甲醛）这类走的是另一条：醛基先与胺缩合成
+        # 亚胺，邻位羟基随即把质子交出来、烯醇化锁定成酮烯胺。连接原子还是
+        # 醛基碳（去 O 留 C），和甲基酮完全同构，所以直接复用 aldehyde 的
+        # 连接点与离去规则，只是键长按 C-N 单键 1.34 Å 摆。
+        # 没有这一条时 Tp 会被判"找不到 ketone"，三维 β-酮烯胺 COF 全部建不了。
+        "donor_alt": ["aldehyde"],
         "acceptor": "amine",
         "bond": 1.34,
         "bond_name": "C-N",
@@ -581,13 +587,14 @@ def linkage_span(linkage: dict, node: Monomer, linker: Monomer):
     这个角色 —— 否则把两个 SMILES 的位置写反就会搭出错误的缩合方向。
     """
     donor, acceptor = linkage["donor"], linkage["acceptor"]
-    if node.kind == donor and linker.kind == acceptor:
+    donors = [donor, *linkage.get("donor_alt", ())]
+    if node.kind in donors and linker.kind == acceptor:
         m_donor, m_acc = node, linker
-    elif node.kind == acceptor and linker.kind == donor:
+    elif node.kind == acceptor and linker.kind in donors:
         m_donor, m_acc = linker, node
     else:
         raise RuntimeError(
-            f"连接方式 {linkage['name']} 需要 {donor} + {acceptor}，"
+            f"连接方式 {linkage['name']} 需要 {' / '.join(donors)} + {acceptor}，"
             f"但你给的是 {node.kind} + {linker.kind}")
     span = m_donor.arm_len.mean() + m_acc.arm_len.mean() + linkage["bond"]
     return span, m_donor, m_acc
@@ -987,6 +994,148 @@ def stitch(groups, m_acc, m_donor, cell, target, iters=600, relax=0.5,
     return shift
 
 
+# ============================================================ 连接位氢
+def _unit(v):
+    n = float(np.linalg.norm(v))
+    return v / n if n > 1e-9 else np.zeros(3)
+
+
+def repair_linkage_h(groups, m_acc, m_donor, cell, linkage,
+                     blen=1.09, h_cut=1.25, heavy_cut=1.75, verbose=True):
+    """把连接原子上的氢按**缝合后的**实际键方位重摆一遍（重原子一个都不动）。
+
+    为什么必须单独做这一步：单体的羰基氢是 RDKit 按"sp2、两根键各 120°"
+    摆的，但缝合只做刚体平移/旋转，跨分子的那根新键落在哪儿由拓扑决定，
+    不会回到醛基氧原来那个方向。实测 BF-COF-1（ctn，亚胺）：
+
+        ∠Ar–C–N = 131.8°（理想 120°）  ⇒  ∠H–C–N 只剩 54.4°
+        H···C 1.103 Å + H···N 1.105 Å
+
+    两根键几乎等长，VESTA / MS 就把它画成"一个氢同时连在碳和氮上"——
+    化学上不成立，也因为这是弛豫的初始结构，MACE 一上来就在这个氢上
+    吃到一个巨大的非键力。
+
+    做法：氢只绕连接原子在"两根重键确定的平面"内旋转，扫一圈候选方向，
+    按"离其它所有原子（含周期像）最远、同时偏离角平分线最少"打分择优。
+    亚胺碳 ∠Ar–C–N 被拉直时，平分线正好给出 114°/114° 的替代解，
+    H···N 回到 ~2.0 Å，价键图像恢复成 C–H 单键 + C=N 双键。
+
+    重原子坐标、晶胞、拓扑都不碰，所以不会改掉已经缝合好的骨架。
+    """
+    edges = edge_table(groups, m_acc, m_donor, cell)
+    if not edges:
+        return 0
+
+    sizes = [len(g["mono"].elements) for g in groups]
+    off = np.concatenate([[0], np.cumsum(sizes)]).astype(int)
+    P = np.vstack([g["cart"] for g in groups]).copy()
+    cell = np.asarray(cell, float)
+    Linv = np.linalg.inv(cell)
+
+    def mic(dv):
+        f = dv @ Linv
+        return (f - np.round(f)) @ cell
+
+    def dmin_to(q, skip):
+        """q 到全结构（含周期像）的最近距离，跳过 skip 里的下标。"""
+        f = (P - q) @ Linv
+        f -= np.round(f)
+        d = np.linalg.norm(f @ cell, axis=1)
+        d[np.asarray(skip, int)] = 9.0
+        return float(d.min())
+
+    fixed, after = 0, []
+    for (i, k, j, l) in edges:
+        for gi, ki, gj, kj in ((i, k, j, l), (j, l, i, k)):
+            mono = groups[gi]["mono"]
+            c_loc = mono.conn[ki]
+            c_glob = int(off[gi] + c_loc)
+            cp = P[c_glob]
+            own = groups[gi]["cart"]
+
+            hs = [t for t in range(len(mono.elements))
+                  if mono.elements[t] == "H"
+                  and float(np.linalg.norm(own[t] - cp)) < h_cut]
+            if not hs:
+                continue          # 胺端缩合后已经没有氢了，正常
+            h_glob = [int(off[gi] + t) for t in hs]
+
+            # ---- 两根重键：分子内（Ar）与跨分子（N/O） ----
+            vecs = []
+            for t in range(len(mono.elements)):
+                if t == c_loc or mono.elements[t] == "H":
+                    continue
+                dv = mic(own[t] - cp)
+                if float(np.linalg.norm(dv)) < heavy_cut:
+                    vecs.append(dv)
+            other = groups[gj]["mono"]
+            vecs.append(mic(groups[gj]["cart"][other.conn[kj]] - cp))
+
+            vecs.sort(key=lambda v: float(np.linalg.norm(v)))
+            uniq = []
+            for v in vecs:
+                u = _unit(v)
+                # neighbor_list 会把同一根键的多个周期像都列出来，
+                # 同向矢量必须去重，否则"角平分线"退化
+                if any(abs(float(u @ _unit(w))) > 0.97 for w in uniq):
+                    continue
+                uniq.append(v)
+                if len(uniq) == 2:
+                    break
+
+            if len(uniq) >= 2:
+                u1, u2 = _unit(uniq[0]), _unit(uniq[1])
+                nrm = np.cross(u1, u2)
+                if float(np.linalg.norm(nrm)) < 0.15:      # 近共线，平面退化
+                    for axis in (np.array([0., 0., 1.]),
+                                 np.array([0., 1., 0.]),
+                                 np.array([1., 0., 0.])):
+                        nrm = np.cross(u1, axis)
+                        if float(np.linalg.norm(nrm)) > 0.15:
+                            break
+                nrm = _unit(nrm)
+                e2 = _unit(np.cross(nrm, u1))
+                b = -_unit(u1 + u2)
+                if float(np.linalg.norm(u1 + u2)) < 0.05:
+                    b = e2                                # 180° 没有平分线
+            else:
+                b = -_unit(uniq[0]) if uniq else np.array([0., 0., 1.])
+                e2 = _unit(np.cross(b, np.array([0., 0., 1.])))
+                if float(np.linalg.norm(e2)) < 0.1:
+                    e2 = np.array([1., 0., 0.])
+
+            skip = h_glob + [c_glob]
+            cands = []
+            for dl in np.arange(-80.0, 80.01, 4.0):
+                d = _unit(np.cos(np.radians(dl)) * b + np.sin(np.radians(dl)) * e2)
+                dm = dmin_to(cp + blen * d, skip)
+                cands.append((dm - 0.0020 * abs(dl), dm, float(dl), d))
+            cands.sort(key=lambda t: -t[0])
+
+            picked = [cands[0]]
+            for extra in cands[1:]:          # CH2（烯醇式）才需要第二个
+                if len(picked) >= len(hs):
+                    break
+                if abs(float(picked[0][3] @ extra[3])) < 0.5:
+                    picked.append(extra)
+
+            partner = groups[gj]["cart"][other.conn[kj]]
+            for t, (_sc, _dm, _dl, d) in zip(h_glob, picked):
+                P[t] = cp + blen * d
+                fixed += 1
+                after.append(float(np.linalg.norm(mic(P[t] - partner))))
+
+    if fixed:
+        for gi in range(len(groups)):
+            groups[gi]["cart"] = P[off[gi]:off[gi + 1]].copy()
+        if verbose:
+            print(f"  重摆 {fixed} 个连接位氢（只转方位，重原子不动）："
+                  f"H···{linkage['bond_name'][-1]} 现在 "
+                  f"{min(after):.2f}–{max(after):.2f} Å，"
+                  f"原来 ~1.10 Å（会被画成两个键）")
+    return fixed
+
+
 # ============================================================ 展开
 def expand(built, topo: Topology):
     """把所有节点上的分子拼成一个大晶胞（已经是周期像，无需再做对称展开）。"""
@@ -1005,9 +1154,12 @@ def linkage_geometry(grp, edges, cell, linkage):
 
     "直线边"理想化（分子臂对齐到两个位点中心的连线）必然把新生键摆在这条
     连线上，于是键角被拉直：亚胺碳上 N-C-C 会接近 180°，而化学上应该是
-    ~120°，连带把醛基 H 挤到 N 旁边（实测 1.27 Å，正常 2.0 Å）。
-    这不是配错原子，是这个理想化的固有代价；量出来是为了让人知道后面
-    弛豫要做什么，也方便判断结果能不能直接用。
+    ~120°。这不是配错原子，是这个理想化的固有代价；量出来是为了让人知道
+    后面弛豫要做什么，也方便判断结果能不能直接用。
+
+    注意：这里只量**重原子**的键角。连接位上那个氢在缝合后会被
+    `repair_linkage_h()` 按最终键方位重摆一遍，所以这里量到的
+    跨键 N···H 是重摆之后的值（~2.0 Å），不是"氢被顶到氮上"的原始值。
     """
     angs, near = [], []
     for i, k, j, l in edges:
@@ -1191,14 +1343,18 @@ def resolve_kinds(linkage, node_smi, linker_smi):
     acceptor 自动对号入座。两边都含同一种（罕见）时，按"连接数多的当节点"。
     """
     donor, acceptor = linkage["donor"], linkage["acceptor"]
-    dn = detect_group(node_smi, [donor, acceptor])
-    dl = detect_group(linker_smi, [donor, acceptor])
+    alts = list(linkage.get("donor_alt", ()))
+    kinds = list(dict.fromkeys([donor, *alts, acceptor]))
+    dn = detect_group(node_smi, kinds)
+    dl = detect_group(linker_smi, kinds)
 
-    if donor in dn and acceptor in dl and donor not in dl:
-        return donor, acceptor                      # 节点出 C，连接子接 N
-    if acceptor in dn and donor in dl and acceptor not in dl:
-        return acceptor, donor                      # 节点接 N，连接子出 C
-    if donor in dn and donor in dl:
+    # 主 donor 优先，找不到再试备选（如 β-酮烯胺的 Tp 路线走的是醛而不是甲基酮）
+    for d in [donor, *alts]:
+        if d in dn and acceptor in dl and d not in dl:
+            return d, acceptor                      # 节点出 C，连接子接 N
+        if acceptor in dn and d in dl and acceptor not in dl:
+            return acceptor, d                      # 节点接 N，连接子出 C
+    if any(d in dn for d in [donor, *alts]) and any(d in dl for d in [donor, *alts]):
         raise RuntimeError(
             f"两个单体里都找到 {donor}（{CONNECT_SMARTS[donor]}），没法配对。\n"
             f"  缩合反应需要一边给 {donor}、一边给 {acceptor}。")
@@ -1208,7 +1364,7 @@ def resolve_kinds(linkage, node_smi, linker_smi):
             f"  缩合反应需要一边给 {donor}、一边给 {acceptor}。")
     raise RuntimeError(
         f"官能团对不上：节点找到 {list(dn) or '无'}，连接子找到 {list(dl) or '无'}，\n"
-        f"  但 {linkage['name']} 需要 {donor} + {acceptor}。")
+        f"  但 {linkage['name']} 需要 {' / '.join([donor, *alts])} + {acceptor}。")
 
 
 def run(args):
@@ -1304,6 +1460,10 @@ def run(args):
                       f"没有两全的晶胞。")
             print(f"  当前写出的结构是纯拓扑位置（键长偏大），"
                   f"想强行缝合加 --force-stitch。")
+
+    banner("2.6  连接位氢按最终键角重摆")
+    repair_linkage_h(built["groups"], built["m_acc"], built["m_donor"],
+                     built["cell"], linkage)
 
     banner("3/4  展开成周期晶胞")
     elements, xyz = expand(built, topo)

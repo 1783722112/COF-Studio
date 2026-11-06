@@ -1,0 +1,2886 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>COF Studio · 建模与优化</title>
+<style>
+:root{
+  --bg:#f5f6f8; --card:#ffffff; --line:#e3e6ec; --line-2:#eef0f4;
+  --text:#15181e; --muted:#6b7280; --faint:#9aa1ad;
+  --accent:#2563eb; --accent-soft:#eef3ff;
+  --ok:#16a34a; --ok-soft:#eafaf0;
+  --warn:#c2740a; --warn-soft:#fdf5e6;
+  --err:#dc2626; --err-soft:#fdecec;
+  --radius:10px; --shadow:0 1px 2px rgba(16,24,40,.04), 0 4px 12px rgba(16,24,40,.04);
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font:14px/1.55 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+  -webkit-font-smoothing:antialiased; overflow:hidden;
+}
+button,input,select{font:inherit;color:inherit}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:#cfd4dc;border-radius:6px;border:2px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:#b0b7c3;background-clip:content-box}
+::-webkit-scrollbar-track{background:transparent}
+
+/* ---------- 骨架 ---------- */
+.app{height:100vh;display:grid;grid-template-rows:52px 1fr}
+header{
+  display:flex;align-items:center;gap:18px;padding:0 16px;
+  background:var(--card);border-bottom:1px solid var(--line);z-index:10;
+}
+.brand{display:flex;align-items:center;gap:9px;font-weight:640;font-size:15px;letter-spacing:.2px}
+.brand svg{display:block}
+.tabs{display:flex;gap:2px;background:#f1f3f7;padding:3px;border-radius:8px}
+.tab{
+  border:0;background:transparent;padding:5px 14px;border-radius:6px;cursor:pointer;
+  font-size:13px;font-weight:520;color:var(--muted);transition:.16s;white-space:nowrap;
+}
+.tab:hover{color:var(--text)}
+.tab.on{background:var(--card);color:var(--text);box-shadow:0 1px 2px rgba(16,24,40,.08)}
+/* 语言切换：和页签同样的视觉语言，但更小、更靠右 */
+.langseg{display:flex;gap:2px;background:#f1f3f7;padding:3px;border-radius:8px}
+.langseg button{
+  border:0;background:transparent;padding:4px 10px;border-radius:6px;cursor:pointer;
+  font-size:12px;font-weight:560;color:var(--muted);transition:.15s;white-space:nowrap;
+  font-variant-numeric:tabular-nums;
+}
+.langseg button:hover{color:var(--text)}
+.langseg button.on{background:var(--card);color:var(--text);box-shadow:0 1px 2px rgba(16,24,40,.08)}
+.spacer{flex:1}
+.env{display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--muted)}
+.env-item{display:flex;align-items:center;gap:5px;cursor:pointer;padding:4px 8px;border-radius:6px;transition:.15s}
+.env-item:hover{background:#f4f6f9}
+.dot{width:7px;height:7px;border-radius:50%;background:#c9ced7;flex:none;transition:.2s}
+.dot.ok{background:var(--ok);box-shadow:0 0 0 3px rgba(22,163,74,.13)}
+.dot.bad{background:var(--err);box-shadow:0 0 0 3px rgba(220,38,38,.12)}
+.dot.wait{background:#d9a300;animation:pulse 1.2s infinite}
+@keyframes pulse{50%{opacity:.35}}
+.icon-btn{
+  width:30px;height:30px;display:grid;place-items:center;border:1px solid var(--line);
+  background:var(--card);border-radius:7px;cursor:pointer;transition:.15s;
+}
+.icon-btn:hover{border-color:#c8cfda;background:#fafbfc}
+
+main{display:grid;grid-template-columns:352px 1fr;min-height:0}
+aside{
+  background:var(--card);border-right:1px solid var(--line);
+  overflow-y:auto;padding:18px 16px 22px;display:flex;flex-direction:column;gap:20px;
+}
+.stage{display:grid;grid-template-rows:1fr 216px;min-height:0;min-width:0}
+
+/* ---------- 表单 ---------- */
+.group{display:flex;flex-direction:column;gap:11px}
+.group-title{
+  display:flex;align-items:center;gap:7px;font-size:11.5px;font-weight:650;
+  letter-spacing:.6px;text-transform:uppercase;color:var(--faint);
+}
+.group-title::after{content:"";flex:1;height:1px;background:var(--line-2)}
+.field{display:flex;flex-direction:column;gap:5px}
+.field label{font-size:12.5px;font-weight:530;color:#3c424e;display:flex;justify-content:space-between;align-items:baseline}
+.field label .hint{font-weight:400;color:var(--faint);font-size:11px}
+input[type=text],input[type=number],select,textarea{
+  width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;
+  background:#fbfcfd;transition:.15s;outline:0;font-size:13px;
+}
+input[type=text]:focus,input[type=number]:focus,select:focus{
+  border-color:var(--accent);background:#fff;box-shadow:0 0 0 3px rgba(37,99,235,.1);
+}
+input::placeholder{color:#b3b9c4}
+.smi{
+  font-family:ui-monospace,"Cascadia Code",Consolas,monospace;font-size:12px;
+  line-height:1.55;resize:vertical;min-height:68px;padding:9px 10px;
+}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.btn{
+  border:0;border-radius:8px;padding:10px 14px;font-weight:580;font-size:13.5px;
+  cursor:pointer;transition:.15s;display:flex;align-items:center;justify-content:center;gap:7px;
+}
+.btn-primary{background:var(--accent);color:#fff;box-shadow:0 1px 2px rgba(37,99,235,.25)}
+.btn-primary:hover{background:#1d4ed8}
+.btn-primary:active{transform:translateY(.5px)}
+.btn-primary:disabled{background:#c7d2e8;cursor:not-allowed;box-shadow:none}
+.btn-ghost{background:var(--card);border:1px solid var(--line);color:#3c424e}
+.btn-ghost:hover{background:#f7f9fb;border-color:#ccd3de}
+.btn-ghost:disabled{opacity:.5;cursor:not-allowed}
+.btn-sm{padding:6px 11px;font-size:12.5px;border-radius:7px}
+/* 三个主行动按钮占满左栏，避免缩成一小块 */
+#go2d,#go3d,#goopt{width:100%}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+/* 复选行：堆叠方式 / 弛豫开关 */
+.chk{
+  display:flex;align-items:center;gap:6px;font-size:12.5px;color:#4b5262;
+  border:1px solid var(--line);background:var(--card);border-radius:7px;
+  padding:4px 9px;cursor:pointer;user-select:none;
+}
+.chk input{accent-color:var(--accent);width:13px;height:13px;cursor:pointer}
+#stkModes .chk{border-radius:999px}
+#gostack{width:100%}
+#stkTbl td .tag{font-variant-numeric:tabular-nums}
+.chip{
+  border:1px solid var(--line);background:var(--card);border-radius:999px;
+  padding:4px 11px;font-size:12px;cursor:pointer;transition:.15s;color:#4b5262;
+}
+.chip:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.seg{display:flex;background:#f1f3f7;border-radius:8px;padding:3px;gap:2px}
+.seg button{
+  flex:1;border:0;background:transparent;padding:6px 4px;border-radius:6px;
+  font-size:12.5px;cursor:pointer;color:var(--muted);transition:.15s;
+}
+.seg button.on{background:var(--card);color:var(--text);box-shadow:0 1px 2px rgba(16,24,40,.07);font-weight:560}
+.note{
+  font-size:12px;line-height:1.6;color:var(--muted);background:#f8f9fb;
+  border:1px solid var(--line-2);border-radius:8px;padding:9px 11px;
+}
+.note b{color:#3c424e;font-weight:600}
+.note.warn{background:var(--warn-soft);border-color:#f3e2c3;color:#8a5a08}
+.note.err{background:var(--err-soft);border-color:#f6d5d5;color:#a52020}
+.note.ok{background:var(--ok-soft);border-color:#cdeedb;color:#116b34}
+
+/* ---------- 3D 画布 ---------- */
+.viewport{position:relative;min-height:0;background:#11151c;overflow:hidden}
+#gl{display:block;width:100%;height:100%;cursor:grab}
+#gl.drag{cursor:grabbing}
+.hud{
+  position:absolute;top:12px;left:12px;display:flex;flex-direction:column;gap:6px;
+  pointer-events:none;max-width:min(420px,60%);
+}
+.hud-row{
+  display:flex;flex-wrap:wrap;gap:6px;
+}
+.pill{
+  background:rgba(20,26,36,.72);backdrop-filter:blur(8px);
+  border:1px solid rgba(255,255,255,.1);color:#c9d3e2;
+  padding:4px 9px;border-radius:6px;font-size:11.5px;
+  font-variant-numeric:tabular-nums;letter-spacing:.1px;
+}
+.pill b{color:#fff;font-weight:600}
+.pill.good{border-color:rgba(34,197,94,.4);color:#86efac}
+.pill.bad{border-color:rgba(248,113,113,.4);color:#fca5a5}
+.vtools{
+  position:absolute;right:12px;top:12px;display:flex;gap:6px;
+}
+.vtool{
+  width:32px;height:32px;display:grid;place-items:center;cursor:pointer;
+  background:rgba(20,26,36,.72);backdrop-filter:blur(8px);
+  border:1px solid rgba(255,255,255,.1);border-radius:7px;transition:.15s;
+}
+.vtool:hover{background:rgba(38,48,64,.9);border-color:rgba(255,255,255,.22)}
+.vtool.on{border-color:rgba(96,165,250,.7);background:rgba(37,99,235,.35)}
+.vtool svg{stroke:#c9d3e2}
+.empty{
+  position:absolute;inset:0;display:grid;place-items:center;pointer-events:none;
+}
+.empty-inner{text-align:center;color:#5b6577;font-size:13px;line-height:1.9}
+.empty-inner svg{opacity:.35;margin-bottom:10px}
+
+/* ---------- 控制台 ---------- */
+.console{
+  background:#0d1117;border-top:1px solid #1c2430;display:flex;flex-direction:column;min-height:0;
+}
+.console-head{
+  display:flex;align-items:center;gap:10px;padding:7px 12px;
+  border-bottom:1px solid #1a2230;font-size:11.5px;color:#6e7b8f;flex:none;
+}
+.console-head .ttl{font-weight:600;color:#8b98ac;letter-spacing:.4px;text-transform:uppercase;font-size:10.5px}
+.console-body{
+  flex:1;overflow-y:auto;padding:8px 12px 12px;font-family:ui-monospace,"Cascadia Code",Consolas,monospace;
+  font-size:11.8px;line-height:1.65;color:#8d9bb0;white-space:pre-wrap;word-break:break-word;
+}
+.console-body .l{display:block}
+.console-body .l.hi{color:#93c5fd}
+.console-body .l.ok{color:#6ee7a0}
+.console-body .l.err{color:#fca5a5}
+.console-body .l.warn{color:#fcd34d}
+.console-body::-webkit-scrollbar-thumb{background:#2a3444;background-clip:content-box}
+.logfilter{
+  display:flex;align-items:center;gap:5px;font-size:11.5px;color:#6e7b8f;
+  cursor:pointer;user-select:none;padding:2px 4px;border-radius:5px;
+}
+.logfilter:hover{color:#8b98ac;background:rgba(255,255,255,.04)}
+.logfilter input{accent-color:#3b82f6;width:12px;height:12px;cursor:pointer}
+
+/* ---------- 进度 ---------- */
+.progress-wrap{display:flex;flex-direction:column;gap:7px}
+.progress-bar{height:6px;background:#e6eaf0;border-radius:99px;overflow:hidden}
+.progress-fill{
+  height:100%;width:0;border-radius:99px;transition:width .45s ease;
+  background:linear-gradient(90deg,#2563eb,#60a5fa);
+  box-shadow:0 0 8px rgba(59,130,246,.45);
+}
+.progress-meta{display:flex;justify-content:space-between;font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+
+/* ---------- 结果对比 ---------- */
+.diff{display:flex;flex-direction:column;gap:0;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.diff-row{display:grid;grid-template-columns:1fr auto auto;gap:10px;padding:7px 11px;font-size:12.5px;align-items:center}
+.diff-row:nth-child(odd){background:#fafbfc}
+.diff-row .k{color:var(--muted)}
+.diff-row .v{font-variant-numeric:tabular-nums;font-weight:550}
+.diff-row .d{font-size:11.5px;font-variant-numeric:tabular-nums;color:#2563eb}
+.diff-row .d.zero{color:var(--faint)}
+
+.filelist{display:flex;flex-direction:column;gap:5px;max-height:220px;overflow-y:auto}
+.fileitem{
+  display:flex;align-items:center;gap:9px;padding:7px 9px;border:1px solid var(--line);
+  border-radius:7px;font-size:12.5px;cursor:pointer;transition:.15s;background:var(--card);
+}
+.fileitem:hover{border-color:#c8d2e4;background:#fafbfd}
+.fileitem.on{border-color:var(--accent);background:var(--accent-soft)}
+.fileitem .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+.fileitem .meta{color:var(--faint);font-size:11px;font-variant-numeric:tabular-nums}
+.tag{font-size:10px;padding:1px 6px;border-radius:4px;background:#eef3ff;color:#2563eb;font-weight:600}
+
+/* 弹层 */
+.modal-bg{
+  position:fixed;inset:0;background:rgba(16,24,40,.34);backdrop-filter:blur(2px);
+  display:none;place-items:center;z-index:50;
+}
+.modal-bg.on{display:grid}
+.modal{
+  background:var(--card);border-radius:14px;width:600px;max-width:92vw;max-height:86vh;
+  overflow:auto;box-shadow:0 20px 50px rgba(16,24,40,.22);border:1px solid var(--line);
+}
+.modal-head{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--line-2)}
+.modal-head h3{margin:0;font-size:15px;font-weight:620}
+.modal-body{padding:18px 20px;display:flex;flex-direction:column;gap:14px}
+.modal-foot{padding:14px 20px;border-top:1px solid var(--line-2);display:flex;justify-content:flex-end;gap:9px}
+.modal.wide{width:920px}
+.xrd-wrap{background:#fbfcfe;border:1px solid var(--line);border-radius:10px;padding:8px 6px 4px}
+.xrd-svg{display:block;width:100%;height:auto}
+.xrd-tbl{width:100%;border-collapse:collapse;font-size:12px;font-family:ui-monospace,Consolas,monospace}
+.xrd-tbl th{text-align:left;color:var(--muted);font-weight:500;padding:4px 7px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--card)}
+.xrd-tbl td{padding:2px 7px;color:var(--text)}
+.xrd-tbl tbody tr:nth-child(even) td{background:#fafbfd}
+.pkg{display:grid;grid-template-columns:100px 1fr;gap:4px 12px;font-size:12.5px;font-family:ui-monospace,Consolas,monospace}
+.pkg .n{color:var(--muted)}
+.pkg .v{color:var(--text)}
+.pkg .v.no{color:var(--err)}
+details{border:1px solid var(--line);border-radius:8px;padding:9px 11px}
+details summary{cursor:pointer;font-size:12.5px;font-weight:540;color:#3c424e}
+details[open] summary{margin-bottom:8px}
+code.cmd{
+  display:block;background:#0d1117;color:#a5b3c8;padding:9px 11px;border-radius:7px;
+  font-family:ui-monospace,Consolas,monospace;font-size:11.5px;overflow-x:auto;
+  white-space:pre;line-height:1.7;
+}
+.hidden{display:none!important}
+/* 后端没连上时的横幅：别人直接双击 ui.html 会走到这里，必须说清楚该怎么办 */
+.no-backend{position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:9999;
+  background:#4a1214;color:#ffd9d9;border:1px solid #a33;border-radius:10px;
+  padding:12px 34px 12px 18px;font-size:12.5px;line-height:1.8;max-width:min(780px,92vw);
+  box-shadow:0 12px 34px rgba(0,0,0,.55)}
+.no-backend b{color:#fff}
+.no-backend code{background:rgba(255,255,255,.12);padding:1px 5px;border-radius:4px;
+  font-family:ui-monospace,Consolas,monospace}
+.no-backend .x{position:absolute;right:9px;top:3px;cursor:pointer;opacity:.55;font-size:17px}
+.no-backend .x:hover{opacity:1}
+</style>
+<!-- 后端在这里注入记住的界面语言（window.__UI_LANG__ = "zh" | "en" | ""）。
+     直接双击打开（没有后端）时这行会原样留着，前端按空值处理。 -->
+<!--UI_LANG-->
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+        <path d="M12 2.6 20.5 7.3v9.4L12 21.4 3.5 16.7V7.3L12 2.6Z" stroke="#2563eb" stroke-width="1.6" stroke-linejoin="round"/>
+        <circle cx="12" cy="7.6" r="1.7" fill="#2563eb"/>
+        <circle cx="7.3" cy="15.4" r="1.7" fill="#2563eb"/>
+        <circle cx="16.7" cy="15.4" r="1.7" fill="#2563eb"/>
+      </svg>
+      COF Studio
+    </div>
+    <div class="tabs">
+      <button class="tab on" data-tab="2d" data-i18n="tab.2d">2D 建模</button>
+      <button class="tab" data-tab="3d" data-i18n="tab.3d">3D 建模</button>
+      <button class="tab" data-tab="opt" data-i18n="tab.opt">势函数优化</button>
+    </div>
+    <div class="spacer"></div>
+    <div class="langseg" id="langSeg">
+      <button data-lang="zh" class="on">中文</button>
+      <button data-lang="en">EN</button>
+    </div>
+    <div class="env">
+      <div class="env-item" id="envBuild" data-i18n-title="env.detailTitle" title="点击查看环境详情">
+        <span class="dot wait" id="dotBuild"></span><span data-i18n="env.build">建模</span>
+      </div>
+      <div class="env-item" id="envOpt" data-i18n-title="env.detailTitle" title="点击查看环境详情">
+        <span class="dot wait" id="dotOpt"></span><span data-i18n="env.opt">优化</span>
+      </div>
+      <button class="icon-btn" id="btnEnv" data-i18n-title="env.settingsTitle" title="环境与解释器设置">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#5b6474" stroke-width="1.8">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3.05V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9v0a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1Z"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <main>
+    <aside>
+      <!-- ========== 2D 表单 ========== -->
+      <div id="form2d">
+        <div class="group">
+          <div class="group-title" data-i18n="common.monomers">单体</div>
+          <div class="field">
+            <label><span data-i18n="common.node2d">节点 SMILES</span> <span class="hint" id="c2n" data-i18n="common.armsHint">— 连接臂</span></label>
+            <textarea class="smi" id="s2node" placeholder="O=Cc1cc(C=O)cc(C=O)c1"></textarea>
+          </div>
+          <div class="field">
+            <label><span data-i18n="common.linker2d">连接子 SMILES</span> <span class="hint" id="c2l" data-i18n="common.armsHint">— 连接臂</span></label>
+            <textarea class="smi" id="s2link" placeholder="Nc1ccc(N)cc1"></textarea>
+          </div>
+        </div>
+        <div class="group">
+          <div class="group-title" data-i18n="common.linkage">连接方式</div>
+          <div class="field">
+            <select id="s2linkage">
+              <option value="imine" data-i18n="linkage.imine">亚胺（醛 + 胺）</option>
+              <option value="ketoenamine" data-i18n="linkage.ketoenamine">β-酮烯胺（醛/酮 + 胺）</option>
+              <option value="enol" data-i18n="linkage.enol">烯醇式（醛 + 胺，保留酚羟基）</option>
+              <option value="azine" data-i18n="linkage.azine">连氮（醛 + 肼）</option>
+              <option value="hydrazone" data-i18n="linkage.hydrazone">腙（醛 + 酰肼）</option>
+              <option value="vinylene" data-i18n="linkage.vinylene">烯烃 C=C（醛 + 芳甲基）</option>
+              <option value="cyanovinylene" data-i18n="linkage.cyanovinylene">氰基烯烃（醛 + 芳乙腈）</option>
+              <option value="amide" data-i18n="linkage.amide">酰胺（羧酸 + 胺）</option>
+              <option value="imide" data-i18n="linkage.imide">聚酰亚胺（二酐 + 二胺）</option>
+              <option value="suzuki" data-i18n="linkage.suzuki">芳基–芳基（Suzuki）</option>
+            </select>
+          </div>
+          <div class="field">
+            <label data-i18n="common.topo">网络拓扑</label>
+            <select id="s2topo">
+              <option value="auto" data-i18n="topo.auto">自动判断</option>
+              <option value="hcb" data-i18n="topo.hcb">hcb 蜂窝（3+2 六方）</option>
+              <option value="sql" data-i18n="topo.sql">sql 方形（4+2 四方）</option>
+            </select>
+          </div>
+          <div class="field">
+            <label data-i18n="common.outName">输出名</label>
+            <input type="text" id="s2name" data-i18n-ph="common.outNamePh" placeholder="留空自动命名">
+          </div>
+        </div>
+        <div class="group">
+          <div class="group-title" data-i18n="stack.title">层间堆叠</div>
+          <div class="field">
+            <label><span data-i18n="stack.mode">堆积方式</span> <span class="hint" data-i18n="stack.modeHint">影响层间峰与 XRD</span></label>
+            <div class="seg" id="stackSeg">
+              <button class="on" data-stack="aa" data-i18n="stack.aa">AA 对齐</button>
+              <button data-stack="ab" data-i18n="stack.ab">AB 交错</button>
+              <button data-stack="free" data-i18n="stack.free">自由移动</button>
+            </div>
+          </div>
+          <div class="row">
+            <div class="field">
+              <label data-i18n="stack.layers">层数</label>
+              <input type="number" id="s2layers" value="2" min="1" max="6" step="1">
+            </div>
+            <div class="field">
+              <label><span data-i18n="stack.gap">层间距</span> <span class="hint">Å</span></label>
+              <input type="number" id="s2gap" value="3.60" min="2.5" max="8" step="0.05">
+            </div>
+          </div>
+          <div class="row hidden" id="stackOff">
+            <div class="field">
+              <label><span data-i18n="stack.dx">滑移 dx</span> <span class="hint" data-i18n="hint.frac">分数坐标</span></label>
+              <input type="number" id="s2dx" value="0.5" step="0.05">
+            </div>
+            <div class="field">
+              <label><span data-i18n="stack.dy">滑移 dy</span> <span class="hint" data-i18n="hint.frac">分数坐标</span></label>
+              <input type="number" id="s2dy" value="0.5" step="0.05">
+            </div>
+          </div>
+          <div class="note" id="stackNote" data-i18n="stack.hint">AA：层层对齐。AB：隔层错开 (dx, dy)。自由移动：每层再滑一格，形成 ABC 型。</div>
+        </div>
+        <div class="group">
+          <div class="group-title" data-i18n="common.presets">常用体系</div>
+          <div class="chips" id="presets2d"></div>
+        </div>
+        <button class="btn btn-primary" id="go2d" style="margin-top:2px" data-i18n="common.build">开始建模</button>
+        <div id="msg2d"></div>
+      </div>
+
+      <!-- ========== 3D 表单 ========== -->
+      <div id="form3d" class="hidden">
+        <div class="group">
+          <div class="group-title" data-i18n="common.monomers">单体</div>
+          <div class="field">
+            <label><span data-i18n="common.node3d">节点 SMILES</span> <span class="hint" data-i18n="hint.node3d">4 连接（四面体/三叶）</span></label>
+            <textarea class="smi" id="s3node" placeholder="O=CC1=CC(C=O)=CC(C=O)=C1"></textarea>
+          </div>
+          <div class="field">
+            <label><span data-i18n="common.linker3d">连接子 SMILES</span> <span class="hint" data-i18n="hint.linker3d">3 或 2 连接</span></label>
+            <textarea class="smi" id="s3link" placeholder="NC1(C2)CC(C3)(N)CC2(N)CC3(N)C1"></textarea>
+          </div>
+        </div>
+        <div class="group">
+          <div class="group-title" data-i18n="group.topoLink">拓扑与连接</div>
+          <div class="field">
+            <label><span data-i18n="common.topo3d">拓扑</span> <span class="hint" data-i18n="hint.topoMatch">要匹配两者连接数</span></label>
+            <select id="s3topo">
+              <option value="ctn" data-i18n="topo.ctn">ctn — 4-c + 3-c（菱形，I-43d）</option>
+              <option value="dia" data-i18n="topo.dia">dia — 4-c + 2-c（金刚石，Fd-3m）</option>
+            </select>
+          </div>
+          <div class="field">
+            <label data-i18n="common.linkage">连接方式</label>
+            <select id="s3linkage">
+              <option value="imine" data-i18n="linkage.imine">亚胺（醛 + 胺）</option>
+              <option value="ketoenamine" data-i18n="linkage.ketoenamine3d">β-酮烯胺</option>
+              <option value="boronate" data-i18n="linkage.boronate">硼酸酯</option>
+            </select>
+          </div>
+          <div class="field">
+            <label><span data-i18n="common.cellA">晶胞边长 a</span> <span class="hint">Å</span></label>
+            <div class="seg" id="cellSeg">
+              <button class="on" data-auto="1" data-i18n="cell.auto">自动推算</button>
+              <button data-auto="0" data-i18n="cell.manual">手动指定</button>
+            </div>
+            <input type="number" id="s3cell" step="0.1" min="5" value="24.8" class="hidden" style="margin-top:5px">
+          </div>
+          <div class="field">
+            <label data-i18n="common.outName">输出名</label>
+            <input type="text" id="s3name" data-i18n-ph="common.outNamePh" placeholder="留空自动命名">
+          </div>
+        </div>
+        <div class="group">
+          <div class="group-title" data-i18n="common.presets">常用体系</div>
+          <div class="chips" id="presets3d"></div>
+        </div>
+        <button class="btn btn-primary" id="go3d" data-i18n="common.build">开始建模</button>
+        <div id="msg3d"></div>
+      </div>
+
+      <!-- ========== 优化表单 ========== -->
+      <div id="formopt" class="hidden">
+        <div class="group">
+          <div class="group-title" data-i18n="opt.input">输入结构</div>
+          <div class="field">
+            <select id="optFile"></select>
+          </div>
+          <div class="note" id="optSrcNote" data-i18n="opt.srcNote">从上方选择 work/ 里的结构，或用建模页的「送去优化」。</div>
+        </div>
+        <div class="group">
+          <div class="group-title" data-i18n="opt.potential">势函数</div>
+          <div class="field">
+            <label><span data-i18n="opt.dim">结构维度</span> <span class="hint" data-i18n="hint.dim">决定要不要补真空</span></label>
+            <select id="optDim">
+              <option value="auto" data-i18n="dim.auto">自动判断</option>
+              <option value="3d" data-i18n="dim.3d">3D 框架（不补真空、不抽真空）</option>
+              <option value="2d" data-i18n="dim.2d">2D 单层（自动补真空再算）</option>
+            </select>
+          </div>
+          <div class="field">
+            <label><span data-i18n="opt.model">模型</span> <span class="hint" id="potHint">3D 框架建议 mace-mp</span></label>
+            <select id="optPot">
+              <option value="qcof" data-i18n="pot.qcof">QCOF — COF 专用（单层最准）</option>
+              <option value="mace-mp" data-i18n="pot.mp">MACE-MP-0 + D3 — 通用材料势（层间/3D 稳）</option>
+              <option value="mace-off" data-i18n="pot.off">MACE-OFF23 — 通用有机势</option>
+            </select>
+          </div>
+          <div class="field hidden" id="modelWrap">
+            <label data-i18n="opt.modelSize">模型尺寸</label>
+            <select id="optModel">
+              <option value="small" data-i18n="size.small">small（快，精度低）</option>
+              <option value="medium" selected data-i18n="size.medium">medium（推荐）</option>
+              <option value="large" data-i18n="size.large">large（慢，精度高）</option>
+            </select>
+          </div>
+          <div class="field">
+            <label data-i18n="opt.device">设备</label>
+            <select id="optDevice">
+              <option value="auto" data-i18n="device.auto">自动</option>
+              <option value="cpu">CPU</option>
+              <option value="cuda">GPU (CUDA)</option>
+            </select>
+          </div>
+        </div>
+        <details>
+          <summary data-i18n="opt.advanced">高级参数</summary>
+          <div class="row" style="margin-bottom:9px">
+            <div class="field"><label data-i18n="opt.steps1">原子弛豫步数</label><input type="number" id="optSteps1" value="200"></div>
+            <div class="field"><label data-i18n="opt.steps2">晶胞优化步数</label><input type="number" id="optSteps2" value="500"></div>
+          </div>
+          <div class="row">
+            <div class="field"><label data-i18n="opt.fmax1">力收敛 (eV/Å)</label><input type="number" id="optFmax1" value="0.05" step="0.01"></div>
+            <div class="field"><label data-i18n="opt.fmax2">晶胞收敛</label><input type="number" id="optFmax2" value="0.01" step="0.005"></div>
+          </div>
+          <label style="display:flex;gap:7px;align-items:center;font-size:12.5px;margin-top:10px">
+            <input type="checkbox" id="optFixC"> <span data-i18n="opt.fixC">只放开 a、b，c 固定</span>
+          </label>
+          <label style="display:flex;gap:7px;align-items:center;font-size:12.5px;margin-top:6px">
+            <input type="checkbox" id="optNoCell"> <span data-i18n="opt.noCell">完全不优化晶胞（只动原子）</span>
+          </label>
+          <label style="display:flex;gap:7px;align-items:center;font-size:12.5px;margin-top:6px">
+            <input type="checkbox" id="optDl"> <span data-i18n="opt.dl">允许联网下载缺失的模型</span>
+          </label>
+        </details>
+        <button class="btn btn-primary" id="goopt" data-i18n="opt.start">开始优化</button>
+        <button class="btn btn-ghost btn-sm hidden" id="stopopt" data-i18n="opt.stop">停止</button>
+        <div class="progress-wrap hidden" id="progWrap">
+          <div class="progress-bar"><div class="progress-fill" id="progFill"></div></div>
+          <div class="progress-meta"><span id="progStage">准备中…</span><span id="progTime">0s</span></div>
+        </div>
+        <div id="msgopt"></div>
+        <div id="diffWrap" class="hidden">
+          <div class="group-title" style="margin-bottom:8px" data-i18n="opt.diff">优化前后</div>
+          <div class="diff" id="diffBox"></div>
+        </div>
+
+        <!-- ===== 层间堆叠能 ===== -->
+        <div class="group" id="stackGroup">
+          <div class="group-title" data-i18n="stk.title">层间堆叠能（AA / AB）</div>
+          <div class="note" data-i18n="stk.note">扫层间距 d，比较哪种堆法更稳。</div>
+          <div class="field">
+            <label data-i18n="stk.modes">堆叠方式</label>
+            <div class="chips" id="stkModes">
+              <label class="chk"><input type="checkbox" value="aa" checked> AA</label>
+              <label class="chk"><input type="checkbox" value="ab" checked> AB</label>
+              <label class="chk"><input type="checkbox" value="abc"> ABC</label>
+            </div>
+          </div>
+          <div class="row">
+            <div class="field"><label><span data-i18n="stk.d0">d 起点</span> <span class="hint">Å</span></label>
+              <input type="number" id="stkD0" value="3.0" step="0.1" min="1.5" max="10"></div>
+            <div class="field"><label><span data-i18n="stk.d1">d 终点</span> <span class="hint">Å</span></label>
+              <input type="number" id="stkD1" value="6.0" step="0.1" min="2" max="12"></div>
+          </div>
+          <div class="row">
+            <div class="field"><label><span data-i18n="stk.step">步长</span> <span class="hint">Å</span></label>
+              <input type="number" id="stkStep" value="0.2" step="0.05" min="0.05" max="1"></div>
+            <div class="field"><label><span data-i18n="stk.vac">真空层</span> <span class="hint">Å</span></label>
+              <input type="number" id="stkVac" value="20" step="2" min="12" max="40"></div>
+          </div>
+          <label class="chk"><input type="checkbox" id="stkRelaxMono" checked>
+            <span data-i18n="stk.relaxMono">先弛豫单层</span></label>
+          <label class="chk"><input type="checkbox" id="stkRelaxMin" checked>
+            <span data-i18n="stk.relaxMin">最优点再弛豫（更准，慢）</span></label>
+          <div id="stkTip" class="note warn hidden" data-i18n="stk.tip"></div>
+          <button class="btn btn-primary" id="gostack" data-i18n="stk.go">扫描堆叠能</button>
+          <button class="btn btn-ghost btn-sm hidden" id="stopstack" data-i18n="stk.stop">停止</button>
+          <div class="progress-wrap hidden" id="stkProgWrap">
+            <div class="progress-bar"><div class="progress-fill" id="stkFill"></div></div>
+            <div class="progress-meta"><span id="stkStage">准备中…</span><span id="stkTime">0s</span></div>
+          </div>
+          <div id="msgstack"></div>
+          <button class="btn btn-ghost btn-sm hidden" id="stkView" data-i18n="stk.view">查看结果</button>
+        </div>
+      </div>
+    </aside>
+
+    <section class="stage">
+      <div class="viewport">
+        <canvas id="gl"></canvas>
+        <div class="hud hidden" id="hud"><div class="hud-row" id="hudRow"></div></div>
+        <div class="vtools">
+          <div class="vtool" id="tHideH" data-i18n-title="vtool.hideH" title="隐藏氢原子">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+              <text x="12" y="17" text-anchor="middle" font-size="13"
+                    font-weight="640" fill="#c9d3e2"
+                    font-family="system-ui,sans-serif">H</text>
+            </svg>
+          </div>
+          <div class="vtool on" id="tCell" data-i18n-title="vtool.cell" title="显示晶胞框">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke-width="1.7">
+              <path d="M12 2.6 20.5 7.3v9.4L12 21.4 3.5 16.7V7.3L12 2.6Z"/>
+              <path d="M3.5 7.3 12 12l8.5-4.7M12 12v9.4"/>
+            </svg>
+          </div>
+          <div class="vtool on" id="tSpin" data-i18n-title="vtool.spin" title="自动旋转">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke-width="1.7">
+              <path d="M21 12a9 9 0 1 1-3.2-6.9"/><path d="M21 3.5V9h-5.5"/>
+            </svg>
+          </div>
+          <div class="vtool" id="tReset" data-i18n-title="vtool.reset" title="重置视角">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke-width="1.7">
+              <path d="M3 12a9 9 0 1 0 2.6-6.4"/><path d="M3 3.5V9h5.5"/>
+            </svg>
+          </div>
+          <div class="vtool" id="tShot" data-i18n-title="vtool.shot" title="保存图片">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke-width="1.7">
+              <rect x="3" y="6.5" width="18" height="13" rx="2.5"/><circle cx="12" cy="13" r="3.4"/>
+              <path d="M8.5 6.5 10 3.8h4l1.5 2.7"/>
+            </svg>
+          </div>
+        </div>
+        <div class="empty" id="empty">
+          <div class="empty-inner">
+            <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="#7c879c" stroke-width="1.1">
+              <path d="M12 2.6 20.5 7.3v9.4L12 21.4 3.5 16.7V7.3L12 2.6Z"/>
+              <path d="M3.5 7.3 12 12l8.5-4.7M12 12v9.4" stroke-dasharray="2 2"/>
+            </svg>
+            <div data-i18n="empty.title">填好左侧参数，点「开始建模」</div>
+            <div style="font-size:12px;opacity:.7" data-i18n="empty.sub">结构会在这里实时渲染，可拖拽旋转、滚轮缩放</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="console">
+        <div class="console-head">
+          <span class="ttl" data-i18n="con.title">输出</span>
+          <span id="conStatus"></span>
+          <div class="spacer" style="flex:1"></div>
+          <label class="logfilter"><input type="checkbox" id="filtWarn" checked> <span data-i18n="con.filter">过滤库警告</span></label>
+          <button class="btn btn-ghost btn-sm" id="btnClear" style="padding:3px 9px;font-size:11.5px" data-i18n="con.clear">清空</button>
+          <button class="btn btn-ghost btn-sm" id="btnOpen" style="padding:3px 9px;font-size:11.5px" data-i18n="con.open">打开目录</button>
+        </div>
+        <div class="console-body" id="log"></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- ========== 环境弹层 ========== -->
+<div class="modal-bg" id="envModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 data-i18n="env.title">运行环境</h3>
+      <button class="icon-btn" id="envClose">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5b6474" stroke-width="2">
+          <path d="M18 6 6 18M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="field" style="margin-bottom:14px">
+        <label>
+          <span data-i18n="env.lang">界面语言</span>
+          <span class="hint" data-i18n="env.langHint">切完立即生效，下次打开还是这个</span>
+        </label>
+        <div class="seg" id="langSeg2">
+          <button data-lang="zh" class="on">中文</button>
+          <button data-lang="en">English</button>
+        </div>
+      </div>
+      <div id="envBody"><div class="note" data-i18n="env.checking">检测中…（首次启动要跑两个解释器自检，约 2~5 秒）</div></div>
+
+      <details>
+        <summary data-i18n="env.paths">解释器与引擎路径</summary>
+        <div class="field" style="margin-bottom:9px">
+          <label><span data-i18n="env.pyBuild">建模解释器</span> <span class="hint" data-i18n="env.pyBuildHint">要 numpy + ase + rdkit</span></label>
+          <input type="text" id="cfgPyBuild" data-i18n-ph="env.phBuild" placeholder="留空 = 当前解释器">
+        </div>
+        <div class="field" style="margin-bottom:9px">
+          <label><span data-i18n="env.pyOpt">优化解释器</span> <span class="hint" data-i18n="env.pyOptHint">要 numpy + ase + torch + mace</span></label>
+          <input type="text" id="cfgPyOpt" data-i18n-ph="env.phOpt" placeholder="留空 = 同建模解释器">
+        </div>
+        <div class="field" style="margin-bottom:9px">
+          <label data-i18n="env.eng3d">3D 建模引擎</label>
+          <input type="text" id="cfgEng3d" placeholder="留空 = engines/build_cof_3d.py">
+        </div>
+        <div class="field" style="margin-bottom:9px">
+          <label data-i18n="env.eng2d">2D 建模引擎</label>
+          <input type="text" id="cfgEng2d" placeholder="留空 = engines/cof_builder.py">
+        </div>
+        <div class="field">
+          <label data-i18n="env.engOpt">优化引擎</label>
+          <input type="text" id="cfgEngOpt" placeholder="留空 = engines/opt_cof.py">
+        </div>
+      </details>
+
+      <details>
+        <summary data-i18n="env.trouble">装不上依赖？照这个来</summary>
+        <div class="note" style="margin-bottom:9px" data-i18n="env.depNote">
+          建模只需要三个小包，几十秒装完；优化要 torch，比较大。
+          两个分开装更省事（torch 环境不用装 rdkit）。
+        </div>
+        <code class="cmd">:: 建模环境 / build env
+python -m pip install numpy ase rdkit
+
+:: 优化环境（另开一个 venv 更好）/ opt env (separate venv preferred)
+python -m pip install numpy ase torch mace-torch torch-dftd matplotlib scipy</code>
+        <div class="note" style="margin-top:9px" data-i18n="env.depNote2">
+          QCOF 权重 2.6 MB 会自动下载；MACE-MP-0 约 42 MB、
+          MACE-OFF23 系列 7~53 MB，需要时在界面上勾「允许联网下载」。
+        </div>
+      </details>
+
+      <details id="updBox">
+        <summary data-i18n="upd.title">版本与更新</summary>
+        <div class="note" style="margin-bottom:9px">
+          <span data-i18n="upd.current">当前版本</span> · <b id="curVer">—</b>
+        </div>
+        <div class="field" style="margin-bottom:9px">
+          <label>
+            <span data-i18n="upd.source">更新源</span>
+            <span class="hint" data-i18n="upd.sourceHint">GitHub 地址 / 共享目录 / http，可填多个换行分隔</span>
+          </label>
+          <textarea id="cfgUpdate" rows="2" spellcheck="false" placeholder="https://github.com/你的账号/COF-Studio/releases/latest/download"></textarea>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:9px">
+          <button class="btn btn-ghost btn-sm" id="btnCheckUpd" data-i18n="upd.check">检查更新</button>
+          <button class="btn btn-primary btn-sm hidden" id="btnPatchUpd" data-i18n="upd.patch">安装补丁</button>
+          <button class="btn btn-ghost btn-sm hidden" id="btnFullUpd" data-i18n="upd.full">下载整包</button>
+        </div>
+        <div class="note" id="updMsg">点「检查更新」看看有没有新版。</div>
+      </details>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" id="envRecheck" data-i18n="env.recheck">重新检测</button>
+      <button class="btn btn-primary" id="envSave" data-i18n="env.save">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ========== XRD 图谱弹层 ========== -->
+<div class="modal-bg" id="xrdModal">
+  <div class="modal wide">
+    <div class="modal-head">
+      <h3><span data-i18n="xrd.title">XRD 图谱</span>
+        <span class="hint" id="xrdFile" style="font-weight:400"></span></h3>
+      <button class="icon-btn" id="xrdClose">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5b6474" stroke-width="2">
+          <path d="M18 6 6 18M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="row">
+        <div class="field">
+          <label data-i18n="xrd.target">靶材 / 波长</label>
+          <select id="xrdTarget">
+            <option value="1.54056">Cu Kα — 1.5406 Å</option>
+            <option value="1.54059">Cu Kα1 — 1.5406 Å</option>
+            <option value="0.71073">Mo Kα — 0.7107 Å</option>
+            <option value="1.78901">Co Kα — 1.7890 Å</option>
+          </select>
+        </div>
+        <div class="field">
+          <label><span data-i18n="xrd.start">2θ 起点</span> <span class="hint">°</span></label>
+          <input type="number" id="xrdT0" value="2" step="0.5" min="0.5" max="120">
+        </div>
+        <div class="field">
+          <label><span data-i18n="xrd.end">2θ 终点</span> <span class="hint">°</span></label>
+          <input type="number" id="xrdT1" value="40" step="0.5" min="1" max="150">
+        </div>
+        <div class="field">
+          <label><span data-i18n="xrd.step">步长</span> <span class="hint">°</span></label>
+          <input type="number" id="xrdStep" value="0.02" step="0.01" min="0.002" max="0.5">
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label><span data-i18n="xrd.size">晶粒尺寸</span> <span class="hint" data-i18n="xrd.sizeHint">nm（0 = 无限大）</span></label>
+          <input type="number" id="xrdSize" value="20" step="1" min="0" max="5000">
+        </div>
+        <div class="field">
+          <label><span data-i18n="xrd.b">温度因子 B</span> <span class="hint">Å²</span></label>
+          <input type="number" id="xrdB" value="2.0" step="0.5" min="0" max="20">
+        </div>
+        <div class="field">
+          <label><span data-i18n="xrd.dstack">层间距 d</span> <span class="hint" data-i18n="xrd.dstackHint">Å（压真空用）</span></label>
+          <input type="number" id="xrdD" value="3.60" step="0.05" min="2.5" max="8">
+        </div>
+        <div class="field" style="flex:0 0 150px;display:flex;align-items:flex-end">
+          <button class="btn btn-primary" id="xrdGo" style="width:100%" data-i18n="xrd.recalc">重新计算</button>
+        </div>
+      </div>
+      <div class="row" style="margin-top:-4px">
+        <label class="chk" style="margin-bottom:8px">
+          <input type="checkbox" id="xrdFixVac" checked>
+          <span data-i18n="xrd.fixVac">真空层胞按 AA 堆叠压回（推荐）</span>
+        </label>
+      </div>
+      <div id="xrdMsg" class="note hidden"></div>
+      <div class="xrd-wrap"><div id="xrdChart"></div></div>
+      <div style="max-height:200px;overflow:auto"><table class="xrd-tbl" id="xrdTbl"></table></div>
+    </div>
+    <div class="modal-foot">
+      <span class="hint" id="xrdInfo" style="margin-right:auto"></span>
+      <button class="btn btn-ghost" id="xrdCsv" data-i18n="xrd.dlCsv">下载 CSV</button>
+      <button class="btn btn-ghost" id="xrdSvg" data-i18n="xrd.dlSvg">下载 SVG</button>
+      <button class="btn btn-ghost" id="xrdClose2" data-i18n="common.close">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- ========== 堆叠能结果弹层 ========== -->
+<div class="modal-bg" id="stkModal">
+  <div class="modal wide">
+    <div class="modal-head">
+      <h3><span data-i18n="stk.title">层间堆叠能（AA / AB）</span>
+        <span class="hint" id="stkInfo" style="font-weight:400"></span></h3>
+      <button class="icon-btn" id="stkClose">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5b6474" stroke-width="2">
+          <path d="M18 6 6 18M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="xrd-wrap"><div id="stkChart"></div></div>
+      <div id="stkSummary" class="note ok"></div>
+      <div style="max-height:240px;overflow:auto"><table class="xrd-tbl" id="stkTbl"></table></div>
+    </div>
+    <div class="modal-foot">
+      <span class="hint" style="margin-right:auto" id="stkFoot"></span>
+      <button class="btn btn-ghost" id="stkCsv" data-i18n="stk.dlCsv">下载 CSV</button>
+      <button class="btn btn-ghost" id="stkJson" data-i18n="stk.dlJson">下载 JSON</button>
+      <button class="btn btn-ghost" id="stkClose2" data-i18n="common.close">关闭</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ==========================================================================
+   COF Studio 网页版 · 本机引擎门控（由 make_web.py 注入，勿手改）
+   ========================================================================== */
+window.__ENGINE_READY__ = (async () => {
+  const zh = ((navigator.language || "zh").toLowerCase().startsWith("zh"));
+  const T = zh ? {
+    probing: "正在连接本机计算引擎…",
+    notFound: "未检测到本机计算引擎",
+    notFoundHint: "网页界面只负责显示，建模、XRD 模拟和势函数优化都在你自己电脑上的引擎里运行（数据不出本机）。请先下载并启动 COF Studio 桌面版，然后回到本页。",
+    download: "下载本机引擎（Windows）",
+    retry: "重新检测",
+    connected: "本机引擎已连接",
+  } : {
+    probing: "Connecting to local compute engine…",
+    notFound: "Local compute engine not found",
+    notFoundHint: "This page is only the interface — structure building, XRD simulation and potential optimization all run in the engine on your own machine (data never leaves it). Download and start COF Studio Desktop, then come back to this page.",
+    download: "Download local engine (Windows)",
+    retry: "Detect again",
+    connected: "Local engine connected",
+  };
+
+  // ---------- 探测遮罩 ----------
+  const ov = document.createElement("div");
+  ov.id = "webGate";
+  ov.style.cssText = [
+    "position:fixed", "inset:0", "z-index:99999",
+    "display:flex", "align-items:center", "justify-content:center",
+    "background:#f5f6f8", "font-family:'Segoe UI','Microsoft YaHei',sans-serif",
+  ].join(";");
+  ov.innerHTML = '<div style="text-align:center;max-width:520px;padding:32px">' +
+    '<div style="font-size:28px;font-weight:700;color:#1c2333;letter-spacing:.5px">COF Studio <span style="color:#5b8def">Web</span></div>' +
+    '<div id="webGateBody" style="margin-top:22px;color:#5b6474;font-size:14px;line-height:1.8"></div></div>';
+  document.body.appendChild(ov);
+  const gateBody = ov.querySelector("#webGateBody");
+  const say = (html) => { gateBody.innerHTML = html; };
+  say('<div style="display:inline-block;width:22px;height:22px;border:3px solid #d6dae2;border-top-color:#5b8def;border-radius:50%;animation:cfsSpin 0.9s linear infinite;vertical-align:-6px;margin-right:10px"></div>' + T.probing);
+  const gst = document.createElement("style");
+  gst.textContent = "@keyframes cfsSpin{to{transform:rotate(360deg)}}";
+  document.head.appendChild(gst);
+
+  // ---------- 并发探测 8770-8789（引擎端口被占会自动后移） ----------
+  const probe = async (base) => {
+    const ctl = new AbortController();
+    const tm = setTimeout(() => ctl.abort(), 2500);
+    try {
+      const r = await fetch(base + "/api/version", {
+        signal: ctl.signal, cache: "no-store" });
+      if (!r.ok) throw new Error("http " + r.status);
+      const info = await r.json();
+      if (!info || !info.version) throw new Error("bad payload");
+      return { base: base, info: info };
+    } finally { clearTimeout(tm); }
+  };
+  let eng = null;
+  try {
+    const bases = [];
+    for (let p = 8770; p <= 8789; p++) bases.push("http://127.0.0.1:" + p);
+    eng = await Promise.any(bases.map(probe));
+  } catch (e) { eng = null; }
+
+  if (!eng) {
+    // ---------- 未装引擎：引导页，主脚本不会再启动 ----------
+    say('<div style="font-size:18px;font-weight:600;color:#b3392e;margin-bottom:12px">' + T.notFound + '</div>' +
+        '<div style="margin-bottom:20px">' + T.notFoundHint + '</div>' +
+        '<div style="display:flex;gap:12px;justify-content:center">' +
+        '<a href="https://github.com/1783722112/COF-Studio/releases/latest" target="_blank" rel="noopener" style="background:#3b6fe0;color:#fff;text-decoration:none;padding:10px 22px;border-radius:8px;font-weight:600">' + T.download + '</a>' +
+        '<button id="webGateRetry" style="background:#fff;border:1px solid #c8cdd8;color:#333;padding:10px 22px;border-radius:8px;cursor:pointer;font-weight:600">' + T.retry + '</button></div>');
+    ov.querySelector("#webGateRetry").onclick = () => location.reload();
+    throw new Error("COF Studio Web: local engine not found");
+  }
+
+  // ---------- 找到引擎：挂基址 + 能力清单，收掉遮罩 ----------
+  window.__API_BASE__ = eng.base;
+  window.__ENGINE_INFO__ = eng.info;
+  const caps = Array.isArray(eng.info.capabilities) ? eng.info.capabilities : [];
+  // 特性检测：引擎没有的能力，对应 data-cap 元素直接隐藏（"API 只加不改"的界面侧配套）
+  for (const el of document.querySelectorAll("[data-cap]")) {
+    if (!caps.includes(el.dataset.cap)) el.style.display = "none";
+  }
+  ov.remove();
+
+  // 常驻小徽标：让用户知道现在算力来自本机引擎
+  const chip = document.createElement("div");
+  chip.id = "webEngineChip";
+  chip.title = "COF Studio Web · compute via local engine";
+  chip.style.cssText = [
+    "position:fixed", "left:12px", "bottom:12px", "z-index:99998",
+    "background:#eef4ff", "border:1px solid #c4d5f7", "color:#2b4d9b",
+    "font-size:12px", "padding:5px 12px", "border-radius:999px",
+    "font-family:'Segoe UI','Microsoft YaHei',sans-serif",
+    "box-shadow:0 2px 8px rgba(30,60,140,.10)", "user-select:none",
+  ].join(";");
+  chip.textContent = "⚡ " + T.connected + " · v" + eng.info.version + " · " + eng.base.replace("http://", "");
+  document.body.appendChild(chip);
+})();
+</script>
+<script>
+/* ==== 主脚本（来自 ui.html）：等引擎门控出结果再启动 ==== */
+(async () => {
+"use strict";
+await window.__ENGINE_READY__;
+
+/* ==========================================================================
+   网页版 API 基址
+   桌面版：页面由本机引擎自己伺服，__API_BASE__ 不存在，fetch 原样走相对路径。
+   网页版：界面托管在别处，make_web.py 注入 __API_BASE__ = "http://127.0.0.1:端口"，
+   在这里统一加前缀 —— 下面几十处 fetch("/api/…") 一个都不用改。
+   ========================================================================== */
+const API_BASE = (typeof window.__API_BASE__ === "string" ? window.__API_BASE__ : "")
+  .replace(/\/+$/, "");
+if (API_BASE) {
+  const _origFetch = window.fetch.bind(window);
+  window.fetch = function (input, init) {
+    try {
+      if (typeof input === "string" && input.startsWith("/api")) {
+        input = API_BASE + input;
+      } else if (input && typeof input === "object" && typeof input.url === "string"
+                 && input.url.startsWith("/api")) {
+        input = new Request(API_BASE + input.url, input);
+      }
+    } catch (e) { /* 原样发出，让上层按失败处理 */ }
+    return _origFetch(input, init);
+  };
+}
+
+/* ==========================================================================
+   状态
+   ========================================================================== */
+const S = {
+  tab: "2d",           // 启动默认落在 2D 建模（?tab= 可覆盖）
+  lang: "zh",          // 由 applyLang() 确定（localStorage > 浏览器语言）
+  last: null,          // 最近一次建模结果
+  lastBuild: null,     // 用来在切语言时重画「建模成功」提示
+  before: null,        // 优化前的指标（做对比用）
+  job: null,           // 当前任务 id
+  status: null,        // 控制台状态栏（存 key，切语言能重画）
+  lineCount: 0,
+  struct: null,
+  env: null,
+  cellAuto: true,
+  ver: "",             // 当前版本（热更新后由后端的 version.txt 决定）
+  upd: { idx: null, staged: false },
+  updMsg: null,        // {key, vars, cls}，切语言时重画
+  showCell: true,
+  hideH: false,        // 默认显示全部原子（含 H）；点右上角 H 才隐藏
+  spin: true,
+  presets3d: [
+    {name:"BF-COF-1", topo:"ctn", linkage:"imine",
+     node:"O=CC1=CC(C=O)=CC(C=O)=C1", link:"NC1(C2)CC(C3)(N)CC2(N)CC3(N)C1"},
+  ],
+  presets2d: [
+    {name:"LZU-1", k:"imine", n:"O=Cc1cc(C=O)cc(C=O)c1", l:"Nc1ccc(N)cc1"},
+    {name:"TAPB-PDA", k:"imine", n:"Nc1ccc(-c2cc(-c3ccc(N)cc3)cc(-c3ccc(N)cc3)c2)cc1", l:"O=Cc1ccc(C=O)cc1"},
+  ],
+};
+
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+
+/* ==========================================================================
+   多语言：所有文案都走 t()，静态文本靠 data-i18n 属性一次性刷
+   ========================================================================== */
+const I18N = {
+  zh: {
+    "app.title": "COF Studio · 建模与优化",
+    "stack.title": "层间堆叠", "stack.mode": "堆积方式", "stack.modeHint": "决定层间峰和 XRD",
+    "stack.aa": "AA 对齐", "stack.ab": "AB 交错", "stack.free": "自由移动",
+    "stack.layers": "层数", "stack.gap": "层间距",
+    "stack.dx": "滑移 dx", "stack.dy": "滑移 dy", "hint.frac": "分数坐标",
+    "stack.hint": "AA：层层对齐。AB：隔层错开 (dx, dy)。自由移动：每层再滑一格，形成 ABC 型。",
+    "xrd.btn": "XRD 图谱", "xrd.title": "XRD 图谱", "xrd.target": "靶材 / 波长",
+    "xrd.start": "2θ 起点", "xrd.end": "2θ 终点", "xrd.step": "步长",
+    "xrd.size": "晶粒尺寸", "xrd.recalc": "重新计算", "xrd.calc": "计算中…",
+    "xrd.b": "温度因子 B", "xrd.dstack": "层间距 d",
+    "xrd.sizeHint": "nm（0 = 无限大）", "xrd.dstackHint": "Å（压真空用）",
+    "xrd.fixVac": "真空层胞按 AA 堆叠压回（推荐）", "xrd.warn": "提示：{m}",
+    "xrd.fail": "计算失败：{e}", "xrd.noPeak": "这个范围内没有衍射峰",
+    "xrd.info": "{n} 原子 · {h} 个反射 · {t}s · a = {a} Å",
+    "xrd.log": "XRD：{f} · {h} 个反射 · {t}s",
+    "xrd.dlCsv": "下载 CSV", "xrd.dlSvg": "下载 SVG", "common.close": "关闭",
+
+    "tab.2d": "2D 建模", "tab.3d": "3D 建模", "tab.opt": "势函数优化",
+    "env.build": "建模", "env.opt": "优化",
+    "env.detailTitle": "点击查看环境详情", "env.settingsTitle": "环境与解释器设置",
+
+    "common.monomers": "单体", "common.node2d": "节点 SMILES", "common.linker2d": "连接子 SMILES",
+    "common.armsHint": "— 连接臂",
+    "common.linkage": "连接方式", "common.topo": "网络拓扑", "common.outName": "输出名",
+    "common.outNamePh": "留空自动命名", "common.presets": "常用体系", "common.build": "开始建模",
+    "common.node3d": "节点 SMILES", "common.linker3d": "连接子 SMILES",
+    "hint.node3d": "4 连接（四面体/三叶）", "hint.linker3d": "3 或 2 连接",
+    "group.topoLink": "拓扑与连接", "common.topo3d": "拓扑", "hint.topoMatch": "要匹配两者连接数",
+    "common.cellA": "晶胞边长 a", "cell.auto": "自动推算", "cell.manual": "手动指定",
+    "topo.auto": "自动判断", "topo.hcb": "hcb 蜂窝（3+2 六方）", "topo.sql": "sql 方形（4+2 四方）",
+    "topo.ctn": "ctn — 4-c + 3-c（菱形，I-43d）", "topo.dia": "dia — 4-c + 2-c（金刚石，Fd-3m）",
+    "linkage.imine": "亚胺（醛 + 胺）", "linkage.ketoenamine": "β-酮烯胺（醛/酮 + 胺）",
+    "linkage.enol": "烯醇式（醛 + 胺，保留酚羟基）",
+    "linkage.ketoenamine3d": "β-酮烯胺", "linkage.azine": "连氮（醛 + 肼）",
+    "linkage.hydrazone": "腙（醛 + 酰肼）",
+    "linkage.vinylene": "烯烃 C=C（醛 + 芳甲基）",
+    "linkage.cyanovinylene": "氰基烯烃（醛 + 芳乙腈）",
+    "linkage.amide": "酰胺（羧酸 + 胺）",
+    "linkage.imide": "聚酰亚胺（二酐 + 二胺）",
+    "linkage.suzuki": "芳基–芳基（Suzuki）",
+    "linkage.boronate": "硼酸酯",
+
+    "opt.input": "输入结构",
+    "opt.srcNote": "从上方选择 work/ 里的结构，或用建模页的「送去优化」。",
+    "opt.potential": "势函数", "opt.dim": "结构维度", "hint.dim": "决定要不要补真空",
+    "dim.auto": "自动判断", "dim.3d": "3D 框架（不补真空、不抽真空）",
+    "dim.2d": "2D 单层（自动补真空再算）",
+    "opt.model": "模型", "opt.modelSize": "模型尺寸", "opt.device": "设备", "device.auto": "自动",
+    "size.small": "small（快，精度低）", "size.medium": "medium（推荐）", "size.large": "large（慢，精度高）",
+    "pot.qcof": "QCOF — COF 专用（单层最准）",
+    "pot.mp": "MACE-MP-0 + D3 — 通用材料势（层间/3D 稳）",
+    "pot.off": "MACE-OFF23 — 通用有机势",
+    "potHint.qcof": "单层 COF 首选", "potHint.mp": "3D 框架/多层首选", "potHint.off": "纯有机体系",
+    "opt.advanced": "高级参数", "opt.steps1": "原子弛豫步数", "opt.steps2": "晶胞优化步数",
+    "opt.fmax1": "力收敛 (eV/Å)", "opt.fmax2": "晶胞收敛",
+    "opt.fixC": "只放开 a、b，c 固定", "opt.noCell": "完全不优化晶胞（只动原子）",
+    "opt.dl": "允许联网下载缺失的模型", "opt.start": "开始优化", "opt.stop": "停止",
+    "opt.diff": "优化前后",
+
+    "vtool.hideH": "隐藏氢原子", "vtool.showH": "显示氢原子", "vtool.cell": "显示晶胞框",
+    "vtool.spin": "自动旋转", "vtool.reset": "重置视角", "vtool.shot": "保存图片",
+    "empty.title": "填好左侧参数，点「开始建模」",
+    "empty.sub": "结构会在这里实时渲染，可拖拽旋转、滚轮缩放",
+    "con.title": "输出", "con.filter": "过滤库警告", "con.clear": "清空", "con.open": "打开目录",
+
+    "env.title": "运行环境", "env.checking": "检测中…（首次启动要跑两个解释器自检，约 2~5 秒）",
+    "env.lang": "界面语言", "env.langHint": "切完立即生效，下次打开还是这个",
+    "env.failMsg": "自检失败：{e}",
+    "env.paths": "解释器与引擎路径", "env.pyBuild": "建模解释器",
+    "env.pyBuildHint": "要 numpy + ase + rdkit", "env.pyOpt": "优化解释器",
+    "env.pyOptHint": "要 numpy + ase + torch + mace",
+    "env.phBuild": "留空 = 当前解释器", "env.phOpt": "留空 = 同建模解释器",
+    "env.eng3d": "3D 建模引擎", "env.eng2d": "2D 建模引擎", "env.engOpt": "优化引擎",
+    "env.trouble": "装不上依赖？照这个来",
+    "env.depNote": "建模只需要三个小包，几十秒装完；优化要 torch，比较大。两个分开装更省事（torch 环境不用装 rdkit）。",
+    "env.depNote2": "QCOF 权重 2.6 MB 会自动下载；MACE-MP-0 约 42 MB、MACE-OFF23 系列 7~53 MB，需要时在界面上勾「允许联网下载」。",
+    "env.recheck": "重新检测", "env.save": "保存",
+    "upd.title": "版本与更新", "upd.current": "当前版本",
+    "upd.source": "更新源", "upd.sourceHint": "GitHub 地址 / 共享目录 / http，可填多个、换行分隔",
+    "upd.check": "检查更新", "upd.patch": "安装补丁", "upd.full": "下载整包",
+    "upd.install": "重启并安装",
+    "upd.idle": "点「检查更新」看看有没有新版。",
+    "upd.checking": "正在检查…",
+    "upd.none": "已是最新版本（{v}）。",
+    "upd.found": "发现新版本 {v}（{date}）。",
+    "upd.noPatch": "这一版只能整包更新。",
+    "upd.applying": "正在下载并安装补丁…",
+    "upd.patched": "已更新到 {v}，刷新页面即可生效。",
+    "upd.staged": "整包已就绪，点「重启并安装」。",
+    "upd.staging": "正在下载整包，可能要一会儿…",
+    "upd.installed": "正在重启安装，页面稍后会自动重连。",
+    "upd.fail": "更新失败：{e}",
+    "upd.srcEmpty": "先填更新源再检查。",
+    "upd.devMode": "源码模式不走在线更新。",
+    "upd.lastFail": "上次整包更新没成功，旧版本已保留（详见软件目录里的 update_failed.log）。",
+    "env.ready": "就绪", "env.missingDeps": "缺依赖", "env.missing": "缺失",
+    "env.selfFail": "自检失败", "env.buildEnv": "建模环境", "env.optEnv": "优化环境",
+    "env.sameInterp": "两个环节用的是同一个解释器。如果优化起不来，通常是因为这个环境里没装 torch。",
+    "env.separated": "已分离：建模和优化用不同的解释器。",
+
+    "hud.atoms": "原子", "hud.perCell": " / 胞", "hud.hidden": "已隐藏",
+    "hud.tile": "平铺", "hud.boundary": "边界", "hud.unitCell": "原胞",
+    "hud.bonds": "连接键", "hud.bondCount": " 条",
+
+    "msg.needBoth": "两个单体的 SMILES 都要填。", "msg.building": "建模中…",
+    "msg.buildFail": "建模失败", "msg.unknown": "未知错误", "msg.ok": "成功",
+    "msg.atomsPerCell": "{n} 原子/胞", "msg.toOpt": "送去优化 →",
+    "msg.buildDone": "建模完成 · {n} 原子", "msg.reqFail": "请求失败",
+    "msg.preset": "已载入预设「{n}」", "msg.picked": "已选中 {f}，确认势函数后点「开始优化」。",
+    "msg.emptyList": "（还没有结构，先去建模）", "msg.needFile": "先建一个结构。",
+    "msg.launchFail": "启动失败", "msg.optRunning": "优化运行中…",
+    "msg.dim3d": "[结构维度] 3D 框架：不补真空、输出保留原胞",
+    "msg.dim2d": "[结构维度] 2D 单层：按需补真空",
+    "msg.stopReq": "[已请求停止]", "msg.optDone": "优化完成", "msg.dlCif": "下载 CIF",
+    "msg.view": "查看结构", "msg.stopped": "已停止", "msg.taskStopped": "任务已停止。",
+    "msg.optFail": "优化失败",
+    "msg.optFailHint": "看下方日志找原因（常见：缺模型权重、显存不够、c 太小没补真空）",
+    "msg.openFail": "打不开目录：", "msg.loadFail": "打开 {f} 失败",
+    "msg.ready": "COF Studio 就绪。左侧填单体 SMILES，或点预设快速开始。",
+    "msg.cfgSaved": "配置已保存，正在重新自检…",
+    "msg.attached": "[接回] 任务 {id}（{label}）正在运行，已 {t}s",
+    "msg.ended": "[载入] 任务 {id}（{label}）已结束：{status}",
+    "msg.loaded": "[载入] {f} · {n} 原子/胞 · {formula}",
+    "msg.done": "[完成] {f} · {formula} · {n} 原子/胞",
+    "msg.buildHead": ">>> {dim} 建模：{topo} / {linkage}",
+
+    "stage.0": "初始化", "stage.1": "阶段 1 · 原子弛豫",
+    "stage.2": "阶段 2 · 晶胞优化", "stage.3": "阶段 3 · a=b 规整",
+    "stage.running": "运行中", "stage.steps": "{a}/{b} 步", "stage.prep": "准备中…",
+
+    "diff.a": "a (Å)", "diff.c": "c (Å)", "diff.rho": "密度 (g/cm³)",
+    "diff.dmin": "最短间距 (Å)",
+
+    "status.buildFail": "建模失败", "status.buildDone": "建模完成 · {n} 原子",
+    "status.optRunning": "优化运行中…", "status.optDone": "优化完成",
+    "status.optFail": "优化失败", "status.stopped": "已停止",
+    "status.attached": "已接回运行中的任务", "status.ended": "任务已结束 · {s}",
+    "status.loaded": "已载入 {f}",
+
+    "stk.title": "层间堆叠能（AA / AB）",
+    "stk.note": "扫层间距 d，比较哪种堆法更稳。用上面的结构文件（多层会自动只取一层），需要带色散的势。",
+    "stk.modes": "堆叠方式",
+    "stk.d0": "d 起点", "stk.d1": "d 终点", "stk.step": "步长", "stk.vac": "真空层",
+    "stk.relaxMono": "先弛豫单层",
+    "stk.relaxMin": "最优点再弛豫（更准，慢）",
+    "stk.go": "扫描堆叠能",
+    "stk.stop": "停止",
+    "stk.running": "扫描中…",
+    "stk.needFile": "先在上面选一个结构文件",
+    "stk.launchFail": "启动不了",
+    "stk.done": "扫描完成",
+    "stk.fail": "扫描失败",
+    "stk.points": "{a}/{b} 个点",
+    "stk.gap": "层间距 d (Å)",
+    "stk.ebAtom": "结合能 (meV/atom)",
+    "stk.ebArea": "结合能 (meV/Å²)",
+    "stk.mode": "堆叠",
+    "stk.dstar": "最优 d (Å)",
+    "stk.rigid": "刚体扫描",
+    "stk.relaxed": "弛豫后",
+    "stk.delta": "差值",
+    "stk.preferred": "更稳：{m}",
+    "stk.summary": "共 {n} 种堆法；{p}。负值 = 稳定。刚体扫描不含层内弛豫，会低估结合能，报数请用「弛豫后」。",
+    "stk.norelax": "未做最优点弛豫（刚体扫描值偏小）",
+    "stk.tip": "QCOF 是短程势，没有长程色散，算不了层间 —— 这里请用 MACE-MP-0 + D3。",
+    "stk.view": "查看结果",
+    "stk.dlCsv": "下载 CSV",
+    "stk.dlJson": "下载 JSON",
+    "stk.info": "{f} · {n} 原子/层 · 面积 {a} Å² · {p} · {t}s",
+    "stk.empty": "还没有结果",
+    "stk.slide": "层间滑移",
+
+    "noBackend.html": `<b>没有连上后台服务</b>，这个页面现在只能看、不能建模。<br>
+正确用法：关掉本页 → 双击文件夹里的 <code>run.bat</code>（桌面版是 <code>COFStudio.exe</code>）→
+等程序启动后浏览器会自动打开。<br>
+<span style="opacity:.75">直接双击 ui.html 是不行的，它只是一张皮，得靠本地服务。</span>`,
+  },
+
+  en: {
+    "app.title": "COF Studio · Build & Optimize",
+    "stack.title": "Layer stacking", "stack.mode": "Stacking mode", "stack.modeHint": "Changes interlayer peaks & XRD",
+    "stack.aa": "AA eclipsed", "stack.ab": "AB staggered", "stack.free": "Free shift",
+    "stack.layers": "Layers", "stack.gap": "Layer gap",
+    "stack.dx": "Shift dx", "stack.dy": "Shift dy", "hint.frac": "fractional",
+    "stack.hint": "AA: all layers aligned. AB: every other layer shifted by (dx, dy). Free: each layer shifts one more step (ABC).",
+    "xrd.btn": "XRD pattern", "xrd.title": "XRD pattern", "xrd.target": "Radiation",
+    "xrd.start": "2θ start", "xrd.end": "2θ end", "xrd.step": "Step",
+    "xrd.size": "Crystallite size", "xrd.recalc": "Recalculate", "xrd.calc": "Calculating…",
+    "xrd.b": "Thermal B", "xrd.dstack": "Layer gap d",
+    "xrd.sizeHint": "nm (0 = infinite)", "xrd.dstackHint": "Å (for vacuum fix)",
+    "xrd.fixVac": "Compress vacuum slab to AA stacking (recommended)", "xrd.warn": "Note: {m}",
+    "xrd.fail": "Failed: {e}", "xrd.noPeak": "No reflection in this range",
+    "xrd.info": "{n} atoms · {h} reflections · {t}s · a = {a} Å",
+    "xrd.log": "XRD: {f} · {h} reflections · {t}s",
+    "xrd.dlCsv": "Download CSV", "xrd.dlSvg": "Download SVG", "common.close": "Close",
+
+    "tab.2d": "2D Build", "tab.3d": "3D Build", "tab.opt": "Optimization",
+    "env.build": "Build", "env.opt": "Optimize",
+    "env.detailTitle": "Click for environment details", "env.settingsTitle": "Environment & interpreter settings",
+
+    "common.monomers": "Monomers", "common.node2d": "Node SMILES", "common.linker2d": "Linker SMILES",
+    "common.armsHint": "— arms",
+    "common.linkage": "Linkage", "common.topo": "Topology", "common.outName": "Output name",
+    "common.outNamePh": "Leave blank to auto-name", "common.presets": "Common systems",
+    "common.build": "Build structure",
+    "common.node3d": "Node SMILES", "common.linker3d": "Linker SMILES",
+    "hint.node3d": "4-connected (tetrahedral / trigonal)", "hint.linker3d": "3- or 2-connected",
+    "group.topoLink": "Topology & linkage", "common.topo3d": "Topology",
+    "hint.topoMatch": "must match both connectivities",
+    "common.cellA": "Cell edge a", "cell.auto": "Auto estimate", "cell.manual": "Manual",
+    "topo.auto": "Auto detect", "topo.hcb": "hcb honeycomb (3+2 hexagonal)",
+    "topo.sql": "sql square (4+2 tetragonal)",
+    "topo.ctn": "ctn — 4-c + 3-c (rhombic, I-43d)", "topo.dia": "dia — 4-c + 2-c (diamond, Fd-3m)",
+    "linkage.imine": "Imine (aldehyde + amine)",
+    "linkage.ketoenamine": "β-Ketoenamine (aldehyde/ketone + amine)",
+    "linkage.enol": "Enol form (aldehyde + amine, phenol kept)",
+    "linkage.ketoenamine3d": "β-Ketoenamine", "linkage.azine": "Azine (aldehyde + hydrazine)",
+    "linkage.hydrazone": "Hydrazone (aldehyde + hydrazide)",
+    "linkage.vinylene": "Olefin C=C (aldehyde + aryl methyl)",
+    "linkage.cyanovinylene": "Cyano-olefin (aldehyde + aryl acetonitrile)",
+    "linkage.amide": "Amide (carboxylic acid + amine)",
+    "linkage.imide": "Polyimide (dianhydride + diamine)",
+    "linkage.suzuki": "Aryl–aryl (Suzuki)",
+    "linkage.boronate": "Boronate ester",
+
+    "opt.input": "Input structure",
+    "opt.srcNote": "Pick a structure from work/, or use “Send to optimization” on a build tab.",
+    "opt.potential": "Potential", "opt.dim": "Framework dimension",
+    "hint.dim": "controls vacuum padding",
+    "dim.auto": "Auto detect", "dim.3d": "3D framework (no vacuum added or removed)",
+    "dim.2d": "2D monolayer (vacuum added automatically)",
+    "opt.model": "Model", "opt.modelSize": "Model size", "opt.device": "Device",
+    "device.auto": "Auto",
+    "size.small": "small (fast, lower accuracy)", "size.medium": "medium (recommended)",
+    "size.large": "large (slow, higher accuracy)",
+    "pot.qcof": "QCOF — COF-specific potential",
+    "pot.mp": "MACE-MP-0 + D3 — general materials",
+    "pot.off": "MACE-OFF23 — general organic",
+    "potHint.qcof": "best for 2D monolayers", "potHint.mp": "best for 3D / multilayer",
+    "potHint.off": "organic systems only",
+    "opt.advanced": "Advanced settings", "opt.steps1": "Atomic relaxation steps",
+    "opt.steps2": "Cell optimization steps",
+    "opt.fmax1": "Force conv. (eV/Å)", "opt.fmax2": "Cell convergence",
+    "opt.fixC": "Relax a, b only; keep c fixed",
+    "opt.noCell": "No cell optimization (atoms only)",
+    "opt.dl": "Allow downloading missing model weights",
+    "opt.start": "Start optimization", "opt.stop": "Stop", "opt.diff": "Before / after",
+
+    "vtool.hideH": "Hide hydrogens", "vtool.showH": "Show hydrogens",
+    "vtool.cell": "Show unit cell", "vtool.spin": "Auto-rotate",
+    "vtool.reset": "Reset view", "vtool.shot": "Save image",
+    "empty.title": "Fill in the parameters, then click Build",
+    "empty.sub": "The structure renders here — drag to rotate, scroll to zoom",
+    "con.title": "OUTPUT", "con.filter": "Hide library warnings", "con.clear": "Clear",
+    "con.open": "Open folder",
+
+    "env.title": "Runtime environment",
+    "env.checking": "Checking… (first launch probes both interpreters, about 2–5 s)",
+    "env.lang": "UI language", "env.langHint": "Applies immediately and is remembered next time",
+    "env.failMsg": "Self-check failed: {e}",
+    "env.paths": "Interpreters & engine paths", "env.pyBuild": "Build interpreter",
+    "env.pyBuildHint": "needs numpy + ase + rdkit", "env.pyOpt": "Optimization interpreter",
+    "env.pyOptHint": "needs numpy + ase + torch + mace",
+    "env.phBuild": "blank = current interpreter", "env.phOpt": "blank = same as build",
+    "env.eng3d": "3D build engine", "env.eng2d": "2D build engine",
+    "env.engOpt": "Optimization engine",
+    "env.trouble": "Can't install the dependencies? Do this",
+    "env.depNote": "Building only needs three small packages (under a minute). Optimization needs torch, which is large. Install them separately — the torch environment does not need rdkit.",
+    "env.depNote2": "The QCOF weights (2.6 MB) download automatically; MACE-MP-0 is ~42 MB, MACE-OFF23 7–53 MB — tick “Allow downloading missing model weights” when needed.",
+    "env.recheck": "Re-check", "env.save": "Save",
+    "upd.title": "Version & updates", "upd.current": "Current version",
+    "upd.source": "Update source", "upd.sourceHint": "GitHub URL / shared folder / HTTP; one per line",
+    "upd.check": "Check for updates", "upd.patch": "Install patch",
+    "upd.full": "Download full package", "upd.install": "Install & restart",
+    "upd.idle": "Click \u201cCheck for updates\u201d.",
+    "upd.checking": "Checking\u2026",
+    "upd.none": "You are up to date ({v}).",
+    "upd.found": "Version {v} is available ({date}).",
+    "upd.noPatch": "This release requires the full package.",
+    "upd.applying": "Downloading and applying the patch\u2026",
+    "upd.patched": "Updated to {v}. Reload the page to apply.",
+    "upd.staged": "Package ready \u2014 click \u201cInstall & restart\u201d.",
+    "upd.staging": "Downloading the full package, this may take a while\u2026",
+    "upd.installed": "Restarting to install. The page will reconnect shortly.",
+    "upd.fail": "Update failed: {e}",
+    "upd.srcEmpty": "Set the update source first.",
+    "upd.devMode": "Online update is disabled in source mode.",
+    "upd.lastFail": "The last full-package update did not finish; the old version was kept (see update_failed.log).",
+    "env.ready": "ready", "env.missingDeps": "missing dependencies",
+    "env.missing": "missing",
+    "env.selfFail": "Self-check failed", "env.buildEnv": "Build environment",
+    "env.optEnv": "Optimization environment",
+    "env.sameInterp": "Both stages use the same interpreter. If optimization fails to start, it is usually because torch is not installed there.",
+    "env.separated": "Separated: building and optimization use different interpreters.",
+
+    "hud.atoms": "atoms", "hud.perCell": " / cell", "hud.hidden": "hidden",
+    "hud.tile": "tiled", "hud.boundary": "boundary", "hud.unitCell": "unit cell",
+    "hud.bonds": "bonds", "hud.bondCount": "",
+
+    "msg.needBoth": "Both monomer SMILES are required.", "msg.building": "Building…",
+    "msg.buildFail": "Build failed", "msg.unknown": "Unknown error", "msg.ok": "Success",
+    "msg.atomsPerCell": "{n} atoms/cell", "msg.toOpt": "Optimize →",
+    "msg.buildDone": "Build finished · {n} atoms", "msg.reqFail": "Request failed",
+    "msg.preset": "Preset “{n}” loaded", "msg.picked": "Selected {f}. Confirm the potential, then start.",
+    "msg.emptyList": "(no structures yet — build one first)", "msg.needFile": "Build a structure first.",
+    "msg.launchFail": "Failed to start", "msg.optRunning": "Optimization running…",
+    "msg.dim3d": "[dimension] 3D framework: no vacuum added, original cell kept",
+    "msg.dim2d": "[dimension] 2D monolayer: vacuum added as needed",
+    "msg.stopReq": "[stop requested]", "msg.optDone": "Optimization finished",
+    "msg.dlCif": "Download CIF", "msg.view": "View structure",
+    "msg.stopped": "Stopped", "msg.taskStopped": "Task stopped.",
+    "msg.optFail": "Optimization failed",
+    "msg.optFailHint": "Check the log below (common causes: missing weights, out of GPU memory, cell c too small without vacuum)",
+    "msg.openFail": "Cannot open the folder: ", "msg.loadFail": "Failed to open {f}",
+    "msg.ready": "COF Studio is ready. Enter monomer SMILES on the left, or start from a preset.",
+    "msg.cfgSaved": "Settings saved, re-checking the environment…",
+    "msg.attached": "[re-attached] job {id} ({label}) is running, {t}s elapsed",
+    "msg.ended": "[loaded] job {id} ({label}) finished: {status}",
+    "msg.loaded": "[loaded] {f} · {n} atoms/cell · {formula}",
+    "msg.done": "[done] {f} · {formula} · {n} atoms/cell",
+    "msg.buildHead": ">>> {dim} build: {topo} / {linkage}",
+
+    "stage.0": "Initializing", "stage.1": "Stage 1 · relax atoms",
+    "stage.2": "Stage 2 · optimize cell", "stage.3": "Stage 3 · a=b cleanup",
+    "stage.running": "Running", "stage.steps": "{a}/{b} steps", "stage.prep": "Preparing…",
+
+    "diff.a": "a (Å)", "diff.c": "c (Å)", "diff.rho": "Density (g/cm³)",
+    "diff.dmin": "Min distance (Å)",
+
+    "status.buildFail": "Build failed", "status.buildDone": "Build finished · {n} atoms",
+    "status.optRunning": "Optimization running…", "status.optDone": "Optimization finished",
+    "status.optFail": "Optimization failed", "status.stopped": "Stopped",
+    "status.attached": "Running job re-attached", "status.ended": "Job finished · {s}",
+    "status.loaded": "Loaded {f}",
+
+    "stk.title": "Interlayer stacking energy (AA / AB)",
+    "stk.note": "Scan the layer gap d and see which stacking wins. Uses the structure selected above (multilayers are trimmed to one layer); needs a dispersion-corrected potential.",
+    "stk.modes": "Stackings",
+    "stk.d0": "d start", "stk.d1": "d end", "stk.step": "Step", "stk.vac": "Vacuum",
+    "stk.relaxMono": "Relax monolayer first",
+    "stk.relaxMin": "Relax at the minimum (slower, accurate)",
+    "stk.go": "Scan stacking energy",
+    "stk.stop": "Stop",
+    "stk.running": "Scanning…",
+    "stk.needFile": "Pick a structure file above first",
+    "stk.launchFail": "Could not start",
+    "stk.done": "Scan finished",
+    "stk.fail": "Scan failed",
+    "stk.points": "{a}/{b} points",
+    "stk.gap": "Layer gap d (Å)",
+    "stk.ebAtom": "Binding energy (meV/atom)",
+    "stk.ebArea": "Binding energy (meV/Å²)",
+    "stk.mode": "Stacking",
+    "stk.dstar": "d* (Å)",
+    "stk.rigid": "Rigid scan",
+    "stk.relaxed": "Relaxed",
+    "stk.delta": "Delta",
+    "stk.preferred": "More stable: {m}",
+    "stk.summary": "{n} stackings compared; {p}. Negative = bound. The rigid scan ignores in-layer relaxation and underestimates binding — quote the relaxed values.",
+    "stk.norelax": "No minimum relaxation (rigid scan underestimates)",
+    "stk.tip": "QCOF is a short-range potential with no long-range dispersion — use MACE-MP-0 + D3 here.",
+    "stk.view": "View result",
+    "stk.dlCsv": "Download CSV",
+    "stk.dlJson": "Download JSON",
+    "stk.info": "{f} · {n} atoms/layer · area {a} Å² · {p} · {t}s",
+    "stk.empty": "No result yet",
+    "stk.slide": "Interlayer slide",
+
+    "noBackend.html": `<b>Not connected to the backend service</b> — this page can only be viewed, nothing can be built.<br>
+Correct usage: close this page → double-click <code>run.bat</code> in the folder (or <code>COFStudio.exe</code> for the desktop build) →
+the browser opens automatically once the server is up.<br>
+<span style="opacity:.75">Opening ui.html directly does not work: it is only the interface, it needs the local service.</span>`,
+  },
+};
+
+function t(key, vars) {
+  const dict = I18N[S.lang] || I18N.zh;
+  let s = dict[key] !== undefined ? dict[key] : (I18N.zh[key] !== undefined ? I18N.zh[key] : key);
+  if (vars) s = String(s).replace(/\{(\w+)\}/g, (m, k) => (vars[k] !== undefined ? vars[k] : m));
+  return s;
+}
+
+function applyLang(lang, persist) {
+  S.lang = I18N[lang] ? lang : "zh";
+  try { localStorage.setItem("cof.lang", S.lang); } catch (e) {}
+  document.documentElement.lang = S.lang === "zh" ? "zh-CN" : "en";
+  document.title = t("app.title");
+  // 静态文本：一次刷完
+  for (const el of $$("[data-i18n]")) el.textContent = t(el.dataset.i18n);
+  for (const el of $$("[data-i18n-ph]")) el.placeholder = t(el.dataset.i18nPh);
+  for (const el of $$("[data-i18n-title]")) el.title = t(el.dataset.i18nTitle);
+  for (const b of $$("#langSeg button, #langSeg2 button"))
+    b.classList.toggle("on", b.dataset.lang === S.lang);
+  // 状态相关的文案：HUD、提示、按钮 title 都得跟着换
+  $("#tHideH").title = t(S.hideH ? "vtool.showH" : "vtool.hideH");
+  onPotChange();
+  if (S.struct) renderHud(S.struct);
+  // 环境面板是 JS 拼出来的，切语言得重画一遍
+  if (S.env) renderEnv(S.env);
+  if (S.lastBuild) showBuildResult(S.lastBuild);
+  if (S.stack) renderStack(S.stack);
+  if (S.status) setStatus(S.status.key, S.status.kind, S.status.vars);
+  if (!$("#progStage").dataset.live) $("#progStage").textContent = t("stage.prep");
+  if (S.updMsg) updSay(S.updMsg.key, S.updMsg.vars, S.updMsg.cls);
+  if (S.upd.staged) $("#btnFullUpd").textContent = t("upd.install");
+  // 用户主动切语言才回写后端。localStorage 是按端口隔离的，8770 被占用时
+  // 后端会换端口，只存本地的话下次打开就退回中文了。
+  if (persist) {
+    try {
+      fetch("/api/config", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ui_lang: S.lang }),
+      }).catch(() => {});
+    } catch (e) { /* 直接双击打开 ui.html 时没有后端，忽略 */ }
+  }
+}
+
+// 语言优先级：URL 上的 ?lang= > 上次在这个端口的浏览器里选的 > 后端记住的 > 浏览器语言
+// 后端那层由 cof_studio.py 注入成 window.__UI_LANG__，换端口也不会丢。
+const _urlLang = new URLSearchParams(location.search).get("lang");
+const _saved = (() => { try { return localStorage.getItem("cof.lang"); } catch (e) { return null; } })();
+const _cfgLang = ["zh", "en"].includes(window.__UI_LANG__) ? window.__UI_LANG__ : "";
+applyLang(_urlLang || _saved || _cfgLang ||
+          ((navigator.language || "zh").toLowerCase().startsWith("zh") ? "zh" : "en"));
+
+for (const b of $$("#langSeg button, #langSeg2 button"))
+  b.onclick = () => applyLang(b.dataset.lang, true);
+
+/* ==========================================================================
+   日志
+   ========================================================================== */
+const logEl = $("#log");
+function log(text, cls) {
+  if (!text) return;
+  for (const line of String(text).split("\n")) {
+    if (!line.trim()) continue;
+    const d = document.createElement("span");
+    d.className = "l" + (cls ? " " + cls : "");
+    d.textContent = line;
+    logEl.appendChild(d);
+  }
+  logEl.scrollTop = logEl.scrollHeight;
+  while (logEl.childElementCount > 3000) logEl.removeChild(logEl.firstChild);
+}
+let warnBlock = false;
+function logAuto(line) {
+  // torch / e3nn 每次加载都刷一串 UserWarning，盖住真正有用的输出。
+  // 只吃掉"warning 行 + 它紧跟着的缩进源码行"，优化报告那些两空格开头的
+  // 行在 warnBlock=false 时照常显示。
+  if ($("#filtWarn").checked) {
+    if (/Warning:|warnings\.warn\(|cuequivariance or cuequivariance_torch/.test(line)) {
+      warnBlock = true; return;
+    }
+    if (warnBlock && /^\s{2,}\S/.test(line)) return;
+    warnBlock = false;
+  }
+  let cls = "";
+  if (/^\[失败\]|^\[failed\]|Traceback|Error|错误|失败/.test(line)) cls = "err";
+  else if (/^\[完成\]|^\[done\]|^\[OK\]|完成/.test(line)) cls = "ok";
+  else if (/^\[注意\]|^\[警告\]|^\[warning\]|警告/.test(line)) cls = "warn";
+  else if (/^>>>/.test(line) || /^\$ /.test(line)) cls = "hi";
+  log(line, cls);
+}
+
+/* ==========================================================================
+   三维渲染
+   ========================================================================== */
+const cv = $("#gl"), ctx = cv.getContext("2d");
+let V = {rx:-0.32, ry:0.62, zoom:1, cx:0, cy:0, cz:0, span:10};
+let dirty = true;
+const ELEM_R = {H:.30,B:.42,C:.40,N:.40,O:.39,F:.36,S:.48,P:.48,Cl:.45,Br:.48,I:.52,Si:.46};
+const spriteCache = {};
+
+function hex2rgb(h){
+  h = h.replace("#","");
+  return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
+}
+function mix(a,b,t){
+  const A=hex2rgb(a), B=hex2rgb(b);
+  return `rgb(${A.map((v,i)=>Math.round(v+(B[i]-v)*t)).join(",")})`;
+}
+function shade(h, f){
+  const [r,g,b] = hex2rgb(h);
+  const k = f>0 ? (c)=>Math.round(c+(255-c)*f) : (c)=>Math.round(c*(1+f));
+  return `rgb(${k(r)},${k(g)},${k(b)})`;
+}
+function sprite(color, key) {
+  if (spriteCache[key]) return spriteCache[key];
+  const R = 34, c = document.createElement("canvas");
+  c.width = c.height = R*2;
+  const g = c.getContext("2d");
+  const grd = g.createRadialGradient(R*0.66, R*0.60, R*0.06, R, R, R);
+  grd.addColorStop(0, shade(color, .52));
+  grd.addColorStop(.42, shade(color, .16));
+  grd.addColorStop(.82, color);
+  grd.addColorStop(1, shade(color, -.42));
+  g.beginPath(); g.arc(R, R, R-1, 0, Math.PI*2);
+  g.fillStyle = grd; g.fill();
+  // 边缘暗圈，让球在深色背景上有轮廓
+  g.strokeStyle = "rgba(0,0,0,.35)"; g.lineWidth = 1.6; g.stroke();
+  spriteCache[key] = c;
+  return c;
+}
+
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const r = cv.getBoundingClientRect();
+  if (r.width < 2 || r.height < 2) return;
+  cv.width = Math.round(r.width * dpr);
+  cv.height = Math.round(r.height * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  dirty = true;
+}
+new ResizeObserver(resize).observe(cv);
+
+function setStruct(payload) {
+  S.struct = payload;
+  const A = payload.atoms;
+  if (!A || !A.length) return;
+  // 包围盒：先取晶胞 8 个顶点，再把**所有原子**（含边界 ghost）并进来。
+  // 只用晶胞顶点的话，伸到胞外的 ghost 会跑出画面，看起来就是"结构偏心"。
+  let lo = [1e9,1e9,1e9], hi = [-1e9,-1e9,-1e9];
+  const cell = payload.cell;
+  if (cell && cell.length === 3) {
+    for (let i=0;i<2;i++) for (let j=0;j<2;j++) for (let k=0;k<2;k++) {
+      const p = [0,1,2].map(d => i*cell[0][d] + j*cell[1][d] + k*cell[2][d]);
+      for (let d=0;d<3;d++){ lo[d]=Math.min(lo[d],p[d]); hi[d]=Math.max(hi[d],p[d]); }
+    }
+  }
+  for (const a of A) {
+    for (let d=0;d<3;d++){
+      lo[d]=Math.min(lo[d],a[d+1]); hi[d]=Math.max(hi[d],a[d+1]);
+    }
+  }
+  V.cx = (lo[0]+hi[0])/2; V.cy = (lo[1]+hi[1])/2; V.cz = (lo[2]+hi[2])/2;
+  // 用**空间对角线**半长当尺度，透视投影后物体才不会顶出屏幕
+  V.radius = 0.5 * Math.hypot(hi[0]-lo[0], hi[1]-lo[1], hi[2]-lo[2]) || 1;
+
+  // 初始视角：层状结构（2D COF）要俯视才看得见孔，斜视会把整层压成一条线。
+  // 判据用**原子**的展布而不是晶胞 —— 带真空的单层胞 c 有 20 Å，
+  // 但分子本身厚度只有 2 Å，用晶胞判会当成三维的。
+  const aLo = [1e9,1e9,1e9], aHi = [-1e9,-1e9,-1e9];
+  for (const a of A) for (let d=0;d<3;d++) {
+    aLo[d] = Math.min(aLo[d], a[d+1]); aHi[d] = Math.max(aHi[d], a[d+1]);
+  }
+  const adx = aHi[0]-aLo[0], ady = aHi[1]-aLo[1], adz = aHi[2]-aLo[2];
+  const flat = adz < 0.4 * Math.max(adx, ady);
+  S.flat = flat;
+  V.rx = flat ? -0.06 : -0.32;
+  V.ry = flat ? 0.0 : 0.62;
+  // 单层结构绕 y 轴自转会周期性转到"侧看"变成一条线，看着像结构没了。
+  // 层状结构默认不自转，三维框架照旧转。
+  S.spin = !flat;
+  $("#tSpin").classList.toggle("on", S.spin);
+
+  S.heavy = buildHeavy(payload);
+  // 只数胞内原子（atoms 尾部是边界 ghost，别把 ghost 的 H 也算进去）
+  S.nH = payload.atoms.slice(0, payload.n_unit || payload.atoms.length)
+                    .filter(a => a[0] === "H").length;
+  V.zoom = 1;
+  $("#empty").classList.add("hidden");
+  $("#hud").classList.remove("hidden");
+  renderHud(payload);
+  dirty = true;
+}
+
+// 去掉 H 的那一份（3D COF 里一半原子是 H，不摘掉骨架全被挡住）
+function buildHeavy(p) {
+  const map = {}, atoms = [];
+  p.atoms.forEach((a, i) => {
+    if (a[0] !== "H") { map[i] = atoms.length; atoms.push(a); }
+  });
+  const bonds = [];
+  for (const [i, j] of (p.bonds || [])) {
+    if (map[i] !== undefined && map[j] !== undefined) bonds.push([map[i], map[j]]);
+  }
+  return {atoms, bonds, colors: p.colors, cell: p.cell};
+}
+
+function renderHud(p){
+  if (!p) return;
+  const cp = p.cellpar || [];
+  const good = p.dmin > 0.95;
+  const tiled = p.tile && (p.tile[0] > 1 || p.tile[1] > 1);
+  let html = "";
+  html += `<span class="pill"><b>${p.n_unit}</b> ${t("hud.atoms")}${tiled ? "" : t("hud.perCell")}</span>`;
+  // 氢原子单独点名：默认是显示的，用户点 H 按钮隐藏后这里要能看出"不是我丢了 H"
+  if (S.nH) {
+    html += `<span class="pill ${S.hideH ? '' : 'good'}">H <b>${S.nH}</b>${S.hideH ? " " + t("hud.hidden") : ""}</span>`;
+  }
+  if (tiled) html += `<span class="pill">${p.tile[0]}×${p.tile[1]} ${t("hud.tile")}</span>`;
+  if (p.n_ghost) html += `<span class="pill">+${p.n_ghost} ${t("hud.boundary")}</span>`;
+  // 平铺时原子数是超胞的，化学式仍按原胞给，所以标一下免得对不上
+  html += `<span class="pill">${tiled ? t("hud.unitCell") + " " : ""}${p.formula}</span>`;
+  if (cp.length === 3) {
+    html += `<span class="pill">a <b>${cp[0].toFixed(2)}</b> b <b>${cp[1].toFixed(2)}</b> c <b>${cp[2].toFixed(2)}</b> Å</span>`;
+  }
+  html += `<span class="pill">ρ <b>${p.density.toFixed(3)}</b> g/cm³</span>`;
+  html += `<span class="pill ${good?'good':'bad'}">d<sub>min</sub> ${p.dmin.toFixed(3)} Å</span>`;
+  if (p.linkage) {
+    html += `<span class="pill">${t("hud.bonds")} <b>${p.linkage.n}</b>${t("hud.bondCount")} · ${p.linkage.mean.toFixed(3)} Å</span>`;
+  }
+  $("#hudRow").innerHTML = html;
+}
+
+function project(x, y, z) {
+  const px = x - V.cx, py = y - V.cy, pz = z - V.cz;
+  const cy = Math.cos(V.ry), sy = Math.sin(V.ry);
+  let x1 = px*cy + pz*sy, z1 = -px*sy + pz*cy;
+  const cx = Math.cos(V.rx), sx = Math.sin(V.rx);
+  let y1 = py*cx - z1*sx, z2 = py*sx + z1*cx;
+  const D = V.radius * 3.6;
+  const persp = D / Math.max(D - z2, V.radius * 0.3);
+  // 层状结构投影后是扁的，可以画大一点；三维框架是球状，留点余量
+  const kk = S.flat ? 1.02 : 0.88;
+  const k = Math.min(cv.clientWidth, cv.clientHeight) / (2 * V.radius) * kk * V.zoom;
+  return [cv.clientWidth/2 + x1*persp*k, cv.clientHeight/2 - y1*persp*k, z2, persp*k];
+}
+
+function draw() {
+  const W = cv.clientWidth, H = cv.clientHeight;
+  if (!W || !H) return;
+  // 背景
+  const bg = ctx.createRadialGradient(W*0.5, H*0.36, 0, W*0.5, H*0.5, Math.max(W,H)*0.78);
+  bg.addColorStop(0, "#1a212c"); bg.addColorStop(1, "#0b0e13");
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+
+  const p = S.struct;
+  if (!p || !p.atoms.length) return;
+  const shown = (S.hideH && S.heavy) ? S.heavy : p;
+  const colors = p.colors || {};
+  const A = shown.atoms, B = shown.bonds || [];
+
+  // ---- 晶胞框（先画，在原子后面） ----
+  if (S.showCell && p.cell && p.cell.length === 3) {
+    const C = p.cell;
+    const corners = [];
+    for (let i=0;i<2;i++) for (let j=0;j<2;j++) for (let k=0;k<2;k++) {
+      corners.push([0,1,2].map(d => i*C[0][d] + j*C[1][d] + k*C[2][d]));
+    }
+    const idx = [[0,1],[0,2],[1,3],[2,3],[4,5],[4,6],[5,7],[6,7],[0,4],[1,5],[2,6],[3,7]];
+    const pr = corners.map(c => project(c[0], c[1], c[2]));
+    ctx.save();
+    ctx.strokeStyle = "rgba(96,165,250,.30)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    for (const [a,b] of idx) {
+      ctx.beginPath();
+      ctx.moveTo(pr[a][0], pr[a][1]); ctx.lineTo(pr[b][0], pr[b][1]);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    ctx.fillStyle = "rgba(96,165,250,.55)";
+    for (const q of pr) { ctx.beginPath(); ctx.arc(q[0], q[1], 1.6, 0, 6.3); ctx.fill(); }
+    ctx.restore();
+  }
+
+  // ---- 投影全部原子 ----
+  const P = new Array(A.length);
+  for (let i=0;i<A.length;i++) P[i] = project(A[i][1], A[i][2], A[i][3]);
+
+  // ---- 图元收集 + 深度排序 ----
+  const items = [];
+  const lightDir = [0.4, -0.5, 0.75];
+  for (const [i,j] of B) {
+    const a = A[i], b = A[j];
+    if (!a || !b) continue;
+    const z = (P[i][2] + P[j][2]) * 0.5;
+    const ca = colors[a[0]] || "#888", cb = colors[b[0]] || "#888";
+    items.push({t:0, z, i, j, col: mix(ca, cb, 0.5)});
+  }
+  for (let i=0;i<A.length;i++) {
+    const e = A[i][0];
+    items.push({t:1, z:P[i][2], i, e});
+  }
+  items.sort((a,b) => a.z - b.z);
+
+  // ---- 绘制 ----
+  ctx.lineCap = "round";
+  for (const it of items) {
+    if (it.t === 0) {
+      const a = P[it.i], b = P[it.j];
+      ctx.strokeStyle = it.col;
+      ctx.globalAlpha = 0.92;
+      // 键宽跟着投影尺度走：0.30 大约是原子直径的 3/4，看起来才像根棍
+      ctx.lineWidth = Math.max(1.2, Math.min(0.34 * Math.min(a[3], b[3]), 10));
+      ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+      ctx.globalAlpha = 1;
+    } else {
+      const e = it.e, q = P[it.i];
+      const base = ELEM_R[e] || 0.4;
+      const rpx = base * q[3] * 1.15;
+      if (rpx < 0.5) continue;
+      const sp = sprite(colors[e] || "#8a93a3", e);
+      const r = rpx;
+      ctx.globalAlpha = 0.55 + 0.45 * Math.min(1, Math.max(0, (q[2] + V.radius*1.2) / (V.radius*2.4)));
+      ctx.drawImage(sp, q[0]-r, q[1]-r, r*2, r*2);
+      ctx.globalAlpha = 1;
+    }
+  }
+}
+
+function loop() {
+  if (dirty) { dirty = false; draw(); }
+  else if (S.spin && S.struct) { V.ry += 0.0035; draw(); }
+  requestAnimationFrame(loop);
+}
+
+/* -------- 交互 -------- */
+let drag = null;
+cv.addEventListener("mousedown", e => {
+  drag = [e.clientX, e.clientY]; S.spin = false; cv.classList.add("drag");
+  $("#tSpin").classList.remove("on");
+});
+window.addEventListener("mouseup", () => { drag = null; cv.classList.remove("drag"); });
+window.addEventListener("mousemove", e => {
+  if (!drag) return;
+  V.ry += (e.clientX - drag[0]) * 0.0075;
+  V.rx += (e.clientY - drag[1]) * 0.0075;
+  V.rx = Math.max(-1.5, Math.min(1.5, V.rx));
+  drag = [e.clientX, e.clientY];
+  dirty = true;
+});
+cv.addEventListener("wheel", e => {
+  e.preventDefault();
+  V.zoom = Math.max(0.25, Math.min(8, V.zoom * (e.deltaY > 0 ? 0.92 : 1.08)));
+  dirty = true;
+}, {passive:false});
+cv.addEventListener("dblclick", () => { resetView(); });
+function resetView(){
+  V.rx = S.flat ? -0.06 : -0.32;
+  V.ry = S.flat ? 0.0 : 0.62;
+  V.zoom = 1; dirty = true;
+}
+$("#tReset").onclick = resetView;
+$("#tCell").onclick = e => { S.showCell = !S.showCell; e.currentTarget.classList.toggle("on", S.showCell); dirty = true; };
+$("#tHideH").onclick = e => {
+  S.hideH = !S.hideH;
+  e.currentTarget.classList.toggle("on", S.hideH);
+  e.currentTarget.title = t(S.hideH ? "vtool.showH" : "vtool.hideH");
+  renderHud(S.struct); dirty = true;
+};
+$("#tSpin").onclick = e => { S.spin = !S.spin; e.currentTarget.classList.toggle("on", S.spin); };
+$("#tShot").onclick = () => {
+  const a = document.createElement("a");
+  a.download = (S.struct?.name || "cof") + ".png";
+  a.href = cv.toDataURL("image/png");
+  a.click();
+};
+
+/* ==========================================================================
+   页签
+   ========================================================================== */
+function setTab(name) {
+  S.tab = name;
+  $$(".tab").forEach(x => x.classList.toggle("on", x.dataset.tab === name));
+  for (const k of ["2d","3d","opt"]) {
+    $("#form" + k).classList.toggle("hidden", name !== k);
+  }
+  if (name === "opt") return refreshFiles();
+  return Promise.resolve();
+}
+$$(".tab").forEach(b => b.onclick = () => setTab(b.dataset.tab));
+
+/* ==========================================================================
+   预设
+   ========================================================================== */
+(function buildPresets(){
+  const box3 = $("#presets3d");
+  S.presets3d.forEach((p, i) => {
+    const b = document.createElement("button");
+    b.className = "chip"; b.textContent = p.name;
+    b.onclick = () => {
+      $("#s3node").value = p.node;
+      $("#s3link").value = p.link;
+      $("#s3topo").value = p.topo;
+      $("#s3linkage").value = p.linkage;
+      $("#s3name").value = p.name;
+      log(t("msg.preset", {n: p.name}), "hi");
+    };
+    box3.appendChild(b);
+  });
+  const box2 = $("#presets2d");
+  S.presets2d.forEach(p => {
+    const b = document.createElement("button");
+    b.className = "chip"; b.textContent = p.name;
+    b.onclick = () => {
+      $("#s2node").value = p.n;
+      $("#s2link").value = p.l;
+      $("#s2linkage").value = p.k;
+      $("#s2name").value = p.name;
+      log(t("msg.preset", {n: p.name}), "hi");
+    };
+    box2.appendChild(b);
+  });
+})();
+
+/* 切换连接方式时，若两个输入框都是空的，自动填一组能建通的示例单体。
+   这些不是"预设体系"，只是告诉用户这种连接该拿什么官能团配对。 */
+const EXAMPLES2D = {
+  imine:         ["O=Cc1cc(C=O)cc(C=O)c1", "Nc1ccc(N)cc1"],
+  ketoenamine:   ["O=Cc1c(O)c(C=O)c(O)c(C=O)c1O", "Nc1ccc(N)cc1"],
+  enol:          ["O=Cc1c(O)c(C=O)c(O)c(C=O)c1O", "Nc1ccc(N)cc1"],
+  azine:         ["O=Cc1cc(C=O)cc(C=O)c1", "NN"],
+  hydrazone:     ["O=Cc1cc(C=O)cc(C=O)c1", "NNC(=O)c1ccc(C(=O)NN)cc1"],
+  vinylene:      ["O=Cc1ccc(-c2cc(-c3ccc(C=O)cc3)cc(-c3ccc(C=O)cc3)c2)cc1",
+                  "Cc1ccc(C)cc1"],
+  cyanovinylene: ["N#CCc1cc(CC#N)cc(CC#N)c1", "O=Cc1ccc(C=O)cc1"],
+  amide:         ["O=C(O)c1cc(C(=O)O)cc(C(=O)O)c1", "Nc1ccc(N)cc1"],
+  imide:         ["O=C1OC(=O)C2=CC=C3C(=O)OC(=O)C3=C12", "Nc1nc(N)nc(N)n1"],
+  suzuki:        ["OB(O)c1cc(B(O)O)cc(B(O)O)c1", "Brc1ccc(Br)cc1"],
+};
+$("#s2linkage").addEventListener("change", () => {
+  const n = $("#s2node"), l = $("#s2link");
+  if (n.value.trim() || l.value.trim()) return;   // 用户填过了就别覆盖
+  const ex = EXAMPLES2D[$("#s2linkage").value];
+  if (ex) { n.value = ex[0]; l.value = ex[1]; }
+});
+
+/* 晶胞自动/手动 */
+$$("#cellSeg button").forEach(b => b.onclick = () => {
+  $$("#cellSeg button").forEach(x => x.classList.toggle("on", x === b));
+  S.cellAuto = b.dataset.auto === "1";
+  $("#s3cell").classList.toggle("hidden", S.cellAuto);
+});
+
+/* ==========================================================================
+   建模
+   ========================================================================== */
+function msg(box, text, kind) {
+  const el = $(box);
+  el.className = kind ? "note " + kind : "note";
+  el.innerHTML = text;
+  el.classList.toggle("hidden", !text);
+}
+
+async function doBuild(mode) {
+  const is2d = mode === "2d";
+  const btn = is2d ? $("#go2d") : $("#go3d");
+  const box = is2d ? "#msg2d" : "#msg3d";
+  const node = $(is2d ? "#s2node" : "#s3node").value.trim();
+  const link = $(is2d ? "#s2link" : "#s3link").value.trim();
+  if (!node || !link) { msg(box, t("msg.needBoth"), "warn"); return; }
+
+  const body = {mode, node, linker: link,
+                linkage: $(is2d ? "#s2linkage" : "#s3linkage").value,
+                name: $(is2d ? "#s2name" : "#s3name").value.trim()};
+  if (is2d) {
+    body.topology = $("#s2topo").value;
+    body.stack = S.stack;
+    body.layers = +$("#s2layers").value || 1;
+    body.gap = +$("#s2gap").value || 3.6;
+    body.dx = +$("#s2dx").value || 0;
+    body.dy = +$("#s2dy").value || 0;
+  }
+  else {
+    body.topology = $("#s3topo").value;
+    body.cell = S.cellAuto ? "auto" : ($("#s3cell").value || "auto");
+  }
+
+  btn.disabled = true;
+  const old = btn.textContent;
+  btn.textContent = t("msg.building");
+  msg(box, "");
+  logEl.innerHTML = "";
+  log(t("msg.buildHead", {dim: is2d ? "2D" : "3D",
+                          topo: body.topology, linkage: body.linkage}), "hi");
+
+  const t0 = performance.now();
+  try {
+    const r = await fetch("/api/build", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body)
+    });
+    const d = await r.json();
+    if (d.log) logAuto(d.log);
+    if (!d.ok) {
+      msg(box, `<b>${t("msg.buildFail")}</b><br>${d.error || t("msg.unknown")}`, "err");
+      setStatus("status.buildFail", "err");
+      return;
+    }
+    S.last = d;
+    S.lastBuild = {...d, mode};
+    setStruct(d);
+    showBuildResult(S.lastBuild);
+    setStatus("status.buildDone", "ok", {n: d.n_unit});
+    log(t("msg.done", {f: d.file, formula: d.formula, n: d.n_unit}), "ok");
+  } catch (e) {
+    msg(box, `<b>${t("msg.reqFail")}</b><br>${e}`, "err");
+  } finally {
+    btn.disabled = false; btn.textContent = old;
+  }
+}
+
+/* 建模成功的提示块：下载 + 送去优化。
+   单独抽出来，是为了切语言时能原地重画（不然按钮还留着旧语言的文字）。 */
+function showBuildResult(d) {
+  const box = d.mode === "2d" ? "#msg2d" : "#msg3d";
+  const a0 = (d.cellpar && d.cellpar.length) ? d.cellpar[0].toFixed(3) : "—";
+  msg(box, `<b>${t("msg.ok")}</b> · ${t("msg.atomsPerCell", {n: d.n_unit})} · a = ${a0} Å · ${d.elapsed}s
+    <div style="display:flex;gap:7px;margin-top:8px">
+      <a class="btn btn-primary btn-sm" style="flex:1;text-decoration:none"
+         href="/api/download?f=${encodeURIComponent(d.file)}"
+         download="${d.file}">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round" style="margin-right:2px">
+          <path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M4 21h16"/>
+        </svg><span data-i18n="msg.dlCif">${t("msg.dlCif")}</span></a>
+      <button class="btn btn-ghost btn-sm" style="flex:1" id="toOpt"><span data-i18n="msg.toOpt">${t("msg.toOpt")}</span></button>
+      <button class="btn btn-ghost btn-sm" style="flex:1" id="toXrd"><span data-i18n="xrd.btn">${t("xrd.btn")}</span></button>
+    </div>`, "ok");
+  $("#toOpt").onclick = () => sendToOpt(d.file, d.kind);
+  $("#toXrd").onclick = () => openXrd(d.file);
+}
+$("#go2d").onclick = () => doBuild("2d");
+$("#go3d").onclick = () => doBuild("3d");
+/* ==========================================================================
+   层间堆叠 + XRD 图谱
+   ========================================================================== */
+S.stack = "aa";
+S.xrd = null;
+S.xrdFile = "";
+
+$$("#stackSeg button").forEach(b => b.onclick = () => {
+  $$("#stackSeg button").forEach(x => x.classList.toggle("on", x === b));
+  S.stack = b.dataset.stack;
+  $("#stackOff").classList.toggle("hidden", S.stack === "aa");
+  if (S.stack === "ab" && !+$("#s2dx").value && !+$("#s2dy").value) {
+    $("#s2dx").value = 0.5; $("#s2dy").value = 0.5;
+  }
+});
+
+$("#xrdClose").onclick = $("#xrdClose2").onclick =
+  () => $("#xrdModal").classList.remove("on");
+$("#xrdModal").onclick = e => {
+  if (e.target.id === "xrdModal") $("#xrdModal").classList.remove("on");
+};
+
+function xrdSay(text, kind) {
+  const el = $("#xrdMsg");
+  el.textContent = text || "";
+  el.className = "note" + (kind ? " " + kind : "") + (text ? "" : " hidden");
+}
+
+async function openXrd(file) {
+  if (!file) { return; }
+  S.xrdFile = file;
+  $("#xrdFile").textContent = "· " + file;
+  $("#xrdModal").classList.add("on");
+  const b = S.lastBuild && S.lastBuild.stack;
+  if (b && !$("#xrdSize").dataset.touched) $("#xrdSize").value = 20;
+  await runXrd();
+}
+
+async function runXrd() {
+  if (!S.xrdFile) return;
+  const btn = $("#xrdGo"), old = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = t("xrd.calc");
+  xrdSay("");
+  const body = {
+    file: S.xrdFile,
+    wl: +$("#xrdTarget").value,
+    tth_min: +$("#xrdT0").value,
+    tth_max: +$("#xrdT1").value,
+    step: +$("#xrdStep").value,
+    size: +$("#xrdSize").value,
+    b_iso: +$("#xrdB").value,
+    d_stack: +$("#xrdD").value,
+    fix_vac: $("#xrdFixVac").checked,
+  };
+  try {
+    const r = await fetch("/api/xrd", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body)
+    });
+    const d = await r.json();
+    if (!d.ok) {
+      xrdSay(t("xrd.fail", {e: d.error || t("msg.unknown")}), "err");
+      return;
+    }
+    S.xrd = d;
+    $("#xrdChart").innerHTML = xrdSvg(d);
+    xrdTable(d);
+    const ws = (d.warn || []).join("；");
+    xrdSay(ws ? t("xrd.warn", {m: ws}) : "", ws ? "warn" : "");
+    $("#xrdInfo").textContent = t("xrd.info", {
+      n: d.n_atoms, h: d.n_hkl, t: d.elapsed, a: (d.cell ? d.cell[0].toFixed(2) : "—")
+    });
+    log(t("xrd.log", {f: d.file, n: d.n_hkl, t: d.elapsed}), "ok");
+  } catch (e) {
+    xrdSay(t("xrd.fail", {e}), "err");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = old;
+  }
+}
+$("#xrdGo").onclick = () => runXrd();
+
+function xrdTable(d) {
+  const rows = (d.peaks || []).slice(0, 30).map(p =>
+    `<tr><td>${p.tth.toFixed(2)}</td><td>${p.d.toFixed(3)}</td>
+      <td>(${p.hkl.join(" ")})</td><td>${p.m || 1}</td><td>${p.I.toFixed(1)}</td></tr>`).join("");
+  $("#xrdTbl").innerHTML =
+    `<thead><tr><th>2θ (°)</th><th>d (Å)</th><th>hkl</th><th>m</th><th>I (%)</th></tr></thead>
+     <tbody>${rows || `<tr><td colspan="5">${t("xrd.noPeak")}</td></tr>`}</tbody>`;
+}
+
+function niceStep(raw) {
+  const p = Math.pow(10, Math.floor(Math.log10(raw)));
+  const n = raw / p;
+  return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * p;
+}
+
+function xrdSvg(d) {
+  const W = 900, H = 340, L = 62, R = 20, T = 18, B = 48;
+  const pw = W - L - R, ph = H - T - B;
+  const xs = d.tth, ys = d.I;
+  const x0 = xs[0], x1 = xs[xs.length - 1];
+  const sx = v => L + (v - x0) / (x1 - x0) * pw;
+  const sy = v => T + ph - (v / 100) * ph;
+  const o = [];
+  o.push(`<svg class="xrd-svg" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`);
+
+  const stx = niceStep((x1 - x0) / 9);
+  const dx = stx < 1 ? 1 : 0;
+  for (let v = Math.ceil(x0 / stx) * stx; v <= x1 + 1e-9; v += stx) {
+    const X = sx(v);
+    o.push(`<line x1="${X.toFixed(1)}" y1="${T}" x2="${X.toFixed(1)}" y2="${T + ph}" stroke="var(--line-2)"/>`);
+    o.push(`<text x="${X.toFixed(1)}" y="${T + ph + 17}" text-anchor="middle" font-size="11" fill="var(--muted)">${v.toFixed(dx)}</text>`);
+  }
+  for (let v = 0; v <= 100; v += 25) {
+    const Y = sy(v);
+    o.push(`<line x1="${L}" y1="${Y.toFixed(1)}" x2="${L + pw}" y2="${Y.toFixed(1)}" stroke="var(--line-2)"/>`);
+    o.push(`<text x="${L - 9}" y="${(Y + 4).toFixed(1)}" text-anchor="end" font-size="11" fill="var(--muted)">${v}</text>`);
+  }
+  o.push(`<rect x="${L}" y="${T}" width="${pw}" height="${ph}" fill="none" stroke="var(--line)"/>`);
+
+  const stride = Math.max(1, Math.floor(xs.length / 1600));
+  let pts = "";
+  for (let i = 0; i < xs.length; i += stride) {
+    pts += sx(xs[i]).toFixed(1) + "," + sy(ys[i]).toFixed(1) + " ";
+  }
+  o.push(`<polyline points="${pts.trim()}" fill="none" stroke="var(--accent)" stroke-width="1.3" stroke-linejoin="round"/>`);
+
+  const pk = (d.peaks || []).slice().sort((a, b) => b.I - a.I).slice(0, 8)
+    .sort((a, b) => a.tth - b.tth);
+  pk.forEach((p, i) => {
+    const X = sx(p.tth), Y = sy(p.I);
+    const up = 15 + (i % 2) * 14;
+    o.push(`<line x1="${X.toFixed(1)}" y1="${(Y - 3).toFixed(1)}" x2="${X.toFixed(1)}" y2="${(Y - up).toFixed(1)}" stroke="var(--faint)" stroke-width="0.8"/>`);
+    o.push(`<text x="${X.toFixed(1)}" y="${(Y - up - 4).toFixed(1)}" text-anchor="middle" font-size="10.5" fill="var(--muted)">${p.tth.toFixed(2)}</text>`);
+  });
+
+  o.push(`<text x="${L + pw / 2}" y="${H - 10}" text-anchor="middle" font-size="12" fill="var(--text)">2θ (°)</text>`);
+  o.push(`<text x="18" y="${T + ph / 2}" text-anchor="middle" font-size="12" fill="var(--text)" transform="rotate(-90 18 ${T + ph / 2})">Intensity</text>`);
+  o.push("</svg>");
+  return o.join("");
+}
+
+$("#xrdCsv").onclick = () => {
+  if (!S.xrd || !S.xrd.csv) return;
+  location.href = "/api/download?f=" + encodeURIComponent(S.xrd.csv);
+};
+$("#xrdSvg").onclick = () => {
+  if (!S.xrd) return;
+  const blob = new Blob([xrdSvg(S.xrd)], {type: "image/svg+xml"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = (S.xrd.file || "xrd").replace(/\.(cif|xyz)$/i, "") + "_xrd.svg";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+};
+
+
+/* ==========================================================================
+   层间堆叠能（AA / AB）
+   ========================================================================== */
+S.stack = null;            // 最近一次结果（切语言时重画）
+S.stackJob = null;
+S.stackLines = 0;
+S.stackFrac = 0;
+const STK_C = ["#2563eb", "#d97706", "#16a34a", "#9333ea", "#0891b2"];
+
+function stackModes() {
+  const on = $$("#stkModes input").filter(i => i.checked).map(i => i.value);
+  return on.length ? on.join(",") : "aa";
+}
+
+$("#gostack").onclick = async () => {
+  const file = $("#optFile").value;
+  if (!file) { msg("#msgstack", t("stk.needFile"), "warn"); return; }
+  const body = {
+    file,
+    potential: $("#optPot").value,
+    model: $("#optModel").value,
+    device: $("#optDevice").value,
+    modes: stackModes(),
+    gap_min: +$("#stkD0").value,
+    gap_max: +$("#stkD1").value,
+    gap_step: +$("#stkStep").value,
+    vacuum: +$("#stkVac").value,
+    relax_mono: $("#stkRelaxMono").checked,
+    relax_min: $("#stkRelaxMin").checked,
+    allow_download: $("#optDl").checked,
+  };
+  if (body.potential === "qcof") delete body.model;
+
+  $("#gostack").disabled = true;
+  $("#stopstack").classList.remove("hidden");
+  $("#stkProgWrap").classList.remove("hidden");
+  $("#stkFill").style.width = "2%";
+  $("#stkView").classList.add("hidden");
+  msg("#msgstack", "");
+  logEl.innerHTML = "";
+  S.stackLines = 0; S.stackFrac = 0;
+  t0 = performance.now();
+
+  try {
+    const r = await fetch("/api/stack", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body)
+    });
+    const d = await r.json();
+    if (!d.ok) {
+      msg("#msgstack", `<b>${t("stk.launchFail")}</b><br>${d.error}`, "err");
+      stackReset();
+      return;
+    }
+    S.stackJob = d.job;
+    S.stackOut = d.out;
+    S.stackCsvName = d.csv || "";
+    setStatus("stk.running", "");
+    stackPoll();
+  } catch (e) {
+    msg("#msgstack", `<b>${t("msg.reqFail")}</b><br>${e}`, "err");
+    stackReset();
+  }
+};
+
+$("#stopstack").onclick = async () => {
+  if (!S.stackJob) return;
+  await fetch("/api/job/stop", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({id: S.stackJob})
+  });
+  log(t("msg.stopReq"), "warn");
+};
+
+function stackReset() {
+  $("#gostack").disabled = false;
+  $("#stopstack").classList.add("hidden");
+}
+
+async function stackPoll() {
+  if (!S.stackJob) return;
+  let d;
+  try {
+    const r = await fetch(`/api/job?id=${S.stackJob}&from=${S.stackLines}`);
+    d = await r.json();
+  } catch (e) {
+    setTimeout(stackPoll, 1500);
+    return;
+  }
+  if (!d.ok) return;
+  for (const line of d.lines || []) logAuto(line);
+  S.stackLines = d.total;
+
+  for (const line of d.lines || []) {
+    const m = /\[(\d+)\/(\d+)\]/.exec(line);
+    if (m) { S.stackFrac = Math.min(1, (+m[1]) / (+m[2])); S.stackPt = [+m[1], +m[2]]; }
+  }
+  const frac = Math.max(0.03, 0.05 + 0.92 * S.stackFrac);
+  $("#stkFill").style.width = (d.status === "done" ? 100 : frac * 100).toFixed(1) + "%";
+  $("#stkStage").textContent = d.status === "running"
+    ? (S.stackPt ? t("stk.points", {a: S.stackPt[0], b: S.stackPt[1]}) : t("stk.running"))
+    : (d.status === "done" ? t("stk.done") : t("stk.fail"));
+  $("#stkTime").textContent = d.elapsed + "s";
+
+  if (d.status === "running") {
+    setTimeout(stackPoll, 800);
+    return;
+  }
+
+  stackReset();
+  $("#gostack").disabled = false;
+  if (d.status === "done") {
+    setStatus("stk.done", "ok");
+    try {
+      const r = await fetch("/api/json?f=" + encodeURIComponent(S.stackOut));
+      const res = await r.json();
+      if (res.ok) {
+        S.stack = res;
+        renderStack(res);
+        $("#stkModal").classList.add("on");
+        $("#stkView").classList.remove("hidden");
+        msg("#msgstack", `<b>${t("stk.done")}</b> · ${d.elapsed}s`, "ok");
+      } else {
+        msg("#msgstack", t("stk.fail") + " · " + (res.error || ""), "err");
+      }
+    } catch (e) {
+      msg("#msgstack", t("stk.fail") + " · " + e, "err");
+    }
+  } else if (d.status === "cancelled") {
+    setStatus("status.stopped", "warn");
+    msg("#msgstack", t("msg.taskStopped"), "warn");
+  } else {
+    setStatus("stk.fail", "err");
+    msg("#msgstack", `<b>${t("stk.fail")}</b> · ${t("msg.optFailHint")}`, "err");
+  }
+}
+
+$("#stkView").onclick = () => {
+  if (!S.stack) return;
+  renderStack(S.stack);
+  $("#stkModal").classList.add("on");
+};
+$("#stkClose").onclick = $("#stkClose2").onclick = () => $("#stkModal").classList.remove("on");
+$("#stkModal").onclick = e => {
+  if (e.target.id === "stkModal") $("#stkModal").classList.remove("on");
+};
+$("#stkCsv").onclick = () => {
+  if (S.stackCsvName) location.href = "/api/download?f=" + encodeURIComponent(S.stackCsvName);
+};
+$("#stkJson").onclick = () => {
+  if (S.stackOut) location.href = "/api/download?f=" + encodeURIComponent(S.stackOut);
+};
+
+function ebOf(m) {
+  return m.relaxed ? m.relaxed.Eb_meV_atom : m.Eb_min_meV_atom;
+}
+
+function renderStack(d) {
+  const ms = d.modes || [];
+  const pot = d.potential_label || d.potential || "";
+  $("#stkInfo").textContent = t("stk.info", {
+    f: d.input, n: (d.mono || {}).n_atoms || "—",
+    a: (d.mono ? d.mono.area : 0).toFixed(1), p: pot, t: d.elapsed
+  });
+  $("#stkChart").innerHTML = stackSvg(d);
+
+  // ---- 表格 ----
+  const rows = ms.map((m, i) => {
+    const rl = m.relaxed;
+    return `<tr>
+      <td><b style="color:${STK_C[i % STK_C.length]}">${m.label}</b></td>
+      <td>${m.gap_min.toFixed(2)}</td>
+      <td>${m.Eb_min_meV_atom.toFixed(1)}</td>
+      <td>${rl ? rl.Eb_meV_atom.toFixed(1) : "—"}</td>
+      <td>${rl ? rl.Eb_meV_A2.toFixed(2) : m.Eb_min_meV_A2.toFixed(2)}</td>
+      <td>${rl ? `(${rl.slide[0].toFixed(2)}, ${rl.slide[1].toFixed(2)})` : "—"}</td>
+    </tr>`;
+  }).join("");
+  $("#stkTbl").innerHTML =
+    `<thead><tr><th>${t("stk.mode")}</th><th>${t("stk.dstar")}</th>
+      <th>${t("stk.rigid")} · meV/atom</th><th>${t("stk.relaxed")} · meV/atom</th>
+      <th>${t("stk.ebArea")}</th><th>${t("stk.slide")} (Å)</th></tr></thead>
+     <tbody>${rows}</tbody>`;
+
+  // ---- 结论 ----
+  const parts = Object.entries(d.delta || {}).map(([k, v]) => {
+    const [a, b] = k.split("|");
+    const s = v.dE_meV_atom;
+    return `${b} − ${a} = ${s > 0 ? "+" : ""}${s.toFixed(1)} meV/atom`;
+  });
+  let best = ms[0], bv = ebOf(ms[0]);
+  ms.forEach(m => { const v = ebOf(m); if (v < bv) { bv = v; best = m; } });
+  const sep = S.lang === "zh" ? "；" : "; ";
+  const p = parts.concat([t("stk.preferred", {m: best.label})]).join(sep);
+  $("#stkSummary").textContent = t("stk.summary", {n: ms.length, p});
+  $("#stkFoot").textContent = (d.settings && d.settings.relax_min)
+    ? "" : t("stk.norelax");
+}
+
+function stackSvg(d) {
+  const W = 880, H = 340, L = 66, R = 20, T = 26, B = 48;
+  const pw = W - L - R, ph = H - T - B;
+  const ms = d.modes || [];
+  if (!ms.length) return "";
+  const xs = ms[0].rows.map(r => r.gap);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs);
+  let lo = 0, hi = 0;
+  ms.forEach(m => m.rows.forEach(r => {
+    lo = Math.min(lo, r.Eb_meV_atom); hi = Math.max(hi, r.Eb_meV_atom);
+  }));
+  const pad = Math.max(1, (hi - lo) * 0.14);
+  lo -= pad; hi += pad;
+  const sx = v => L + (v - x0) / (x1 - x0 || 1) * pw;
+  const sy = v => T + ph - (v - lo) / (hi - lo || 1) * ph;
+  const o = [];
+  o.push(`<svg class="xrd-svg" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`);
+
+  const stx = niceStep((x1 - x0) / 8);
+  const dxx = stx < 1 ? 1 : 0;
+  for (let v = Math.ceil(x0 / stx) * stx; v <= x1 + 1e-9; v += stx) {
+    const X = sx(v);
+    o.push(`<line x1="${X.toFixed(1)}" y1="${T}" x2="${X.toFixed(1)}" y2="${T + ph}" stroke="var(--line-2)"/>`);
+    o.push(`<text x="${X.toFixed(1)}" y="${T + ph + 16}" text-anchor="middle" font-size="11" fill="var(--muted)">${v.toFixed(dxx)}</text>`);
+  }
+  const sty = niceStep((hi - lo) / 6);
+  for (let v = Math.ceil(lo / sty) * sty; v <= hi + 1e-9; v += sty) {
+    const Y = sy(v);
+    o.push(`<line x1="${L}" y1="${Y.toFixed(1)}" x2="${L + pw}" y2="${Y.toFixed(1)}" stroke="var(--line-2)"/>`);
+    o.push(`<text x="${L - 9}" y="${(Y + 4).toFixed(1)}" text-anchor="end" font-size="11" fill="var(--muted)">${v.toFixed(sty < 1 ? 1 : 0)}</text>`);
+  }
+  o.push(`<rect x="${L}" y="${T}" width="${pw}" height="${ph}" fill="none" stroke="var(--line)"/>`);
+  // 零线：能量参考
+  if (lo < 0 && hi > 0) {
+    const Y = sy(0);
+    o.push(`<line x1="${L}" y1="${Y.toFixed(1)}" x2="${L + pw}" y2="${Y.toFixed(1)}" stroke="var(--faint)" stroke-dasharray="4 3"/>`);
+  }
+
+  ms.forEach((m, i) => {
+    const c = STK_C[i % STK_C.length];
+    const pts = m.rows.map(r => `${sx(r.gap).toFixed(1)},${sy(r.Eb_meV_atom).toFixed(1)}`).join(" ");
+    o.push(`<polyline points="${pts}" fill="none" stroke="${c}" stroke-width="1.6" stroke-linejoin="round"/>`);
+    m.rows.forEach(r => {
+      o.push(`<circle cx="${sx(r.gap).toFixed(1)}" cy="${sy(r.Eb_meV_atom).toFixed(1)}" r="2.2" fill="${c}"/>`);
+    });
+    // 极小点
+    const X = sx(m.gap_min), Y = sy(m.Eb_min_meV_atom);
+    o.push(`<circle cx="${X.toFixed(1)}" cy="${Y.toFixed(1)}" r="4.2" fill="#fff" stroke="${c}" stroke-width="2"/>`);
+    o.push(`<text x="${X.toFixed(1)}" y="${(Y - 10).toFixed(1)}" text-anchor="middle" font-size="10.5" fill="${c}">${m.Eb_min_meV_atom.toFixed(1)}</text>`);
+    // 弛豫后的点（星形）
+    if (m.relaxed) {
+      const RX = sx(m.gap_min), RY = sy(m.relaxed.Eb_meV_atom);
+      const s = 5;
+      o.push(`<path d="M${RX} ${RY - s} L${RX + s * 0.3} ${RY - s * 0.3} L${RX + s} ${RY} L${RX + s * 0.3} ${RY + s * 0.3} L${RX} ${RY + s} L${RX - s * 0.3} ${RY + s * 0.3} L${RX - s} ${RY} L${RX - s * 0.3} ${RY - s * 0.3} Z" fill="${c}" opacity=".85"/>`);
+      o.push(`<text x="${(RX + 8).toFixed(1)}" y="${(RY + 4).toFixed(1)}" font-size="10.5" fill="${c}">${m.relaxed.Eb_meV_atom.toFixed(1)}</text>`);
+    }
+    // 图例
+    const ly = T + 12 + i * 16;
+    o.push(`<line x1="${L + pw - 96}" y1="${ly}" x2="${L + pw - 76}" y2="${ly}" stroke="${c}" stroke-width="2"/>`);
+    o.push(`<text x="${L + pw - 70}" y="${ly + 4}" font-size="11" fill="var(--muted)">${m.label}</text>`);
+  });
+
+  o.push(`<text x="${L + pw / 2}" y="${H - 8}" text-anchor="middle" font-size="12" fill="var(--text)">${t("stk.gap")}</text>`);
+  o.push(`<text x="18" y="${T + ph / 2}" text-anchor="middle" font-size="12" fill="var(--text)" transform="rotate(-90 18 ${T + ph / 2})">${t("stk.ebAtom")}</text>`);
+  o.push("</svg>");
+  return o.join("");
+}
+
+
+// 只传 i18n key，不传成品字符串：切语言时这里能原地重画
+function setStatus(key, kind, vars) {
+  S.status = {key, kind, vars};
+  const el = $("#conStatus");
+  el.textContent = key ? t(key, vars) : "";
+  el.style.color = kind === "ok" ? "#6ee7a0" : kind === "err" ? "#fca5a5" : "#6e7b8f";
+}
+
+/* ==========================================================================
+   优化
+   ========================================================================== */
+function sendToOpt(file, kind) {
+  setTab("opt").then(() => {
+    if (file) $("#optFile").value = file;
+    // 3D 框架默认 mace-mp + 不补真空；2D 单层默认 qcof + 自动补真空
+    $("#optPot").value = kind === "3d" ? "mace-mp" : "qcof";
+    $("#optDim").value = kind === "3d" ? "3d" : "2d";
+    onPotChange();
+    msg("#msgopt", t("msg.picked", {f: `<b>${file}</b>`}), "");
+  });
+}
+
+$("#optPot").onchange = onPotChange;
+function onPotChange() {
+  const v = $("#optPot").value;
+  $("#modelWrap").classList.toggle("hidden", v === "qcof");
+  $("#potHint").textContent = v === "qcof"
+    ? t("potHint.qcof")
+    : (v === "mace-mp" ? t("potHint.mp") : t("potHint.off"));
+  // QCOF 没有长程色散，算层间会得到近乎 0 或正的结合能 —— 先提醒，别让人白等
+  $("#stkTip").classList.toggle("hidden", v !== "qcof");
+}
+
+// 在优化页换文件时顺手预览，省得"这个文件到底是什么"要靠猜
+$("#optFile").onchange = async () => {
+  const f = $("#optFile").value;
+  if (!f) return;
+  try {
+    const r = await fetch("/api/struct?f=" + encodeURIComponent(f));
+    const p = await r.json();
+    if (p.ok) setStruct(p);
+  } catch (e) {}
+};
+
+async function refreshFiles() {
+  try {
+    const r = await fetch("/api/files");
+    const d = await r.json();
+    const sel = $("#optFile");
+    const cur = sel.value;
+    sel.innerHTML = "";
+    if (!d.files.length) {
+      sel.innerHTML = `<option value="">${t("msg.emptyList")}</option>`;
+      return;
+    }
+    for (const f of d.files) {
+      const o = document.createElement("option");
+      o.value = f.name;
+      o.textContent = `${f.name}  ·  ${(f.size/1024).toFixed(0)} KB  ·  ${f.mtime}`;
+      sel.appendChild(o);
+    }
+    if (cur && d.files.some(f => f.name === cur)) sel.value = cur;
+    else if (S.last?.file) sel.value = S.last.file;
+  } catch (e) { /* 忽略 */ }
+}
+
+let pollTimer = null;
+let t0 = 0;
+
+$("#goopt").onclick = async () => {
+  const file = $("#optFile").value;
+  if (!file) { msg("#msgopt", t("msg.needFile"), "warn"); return; }
+
+  const body = {
+    file,
+    potential: $("#optPot").value,
+    dimension: $("#optDim").value,
+    model: $("#optModel").value,
+    device: $("#optDevice").value,
+    relax_steps: $("#optSteps1").value,
+    cell_steps: $("#optSteps2").value,
+    relax_fmax: $("#optFmax1").value,
+    cell_fmax: $("#optFmax2").value,
+    fix_c: $("#optFixC").checked,
+    no_cell: $("#optNoCell").checked,
+    allow_download: $("#optDl").checked,
+    out: file.replace(/\.cif$/i, "") + "_opt",
+  };
+  if (body.potential === "qcof") delete body.model;
+
+  // 记住优化前的指标，用来做前后对比
+  try {
+    const r = await fetch("/api/struct?f=" + encodeURIComponent(file));
+    S.before = await r.json();
+  } catch (e) { S.before = null; }
+
+  $("#goopt").disabled = true;
+  $("#stopopt").classList.remove("hidden");
+  $("#progWrap").classList.remove("hidden");
+  $("#diffWrap").classList.add("hidden");
+  msg("#msgopt", "");
+  logEl.innerHTML = "";
+  t0 = performance.now();
+
+  try {
+    const r = await fetch("/api/opt", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body)
+    });
+    const d = await r.json();
+    if (!d.ok) {
+      msg("#msgopt", `<b>${t("msg.launchFail")}</b><br>${d.error}`, "err");
+      $("#goopt").disabled = false;
+      $("#stopopt").classList.add("hidden");
+      return;
+    }
+    S.job = d.job; S.lineCount = 0;
+    if (d.dimension) {
+      log(t(d.dimension === "3d" ? "msg.dim3d" : "msg.dim2d"), "hi");
+    }
+    setStatus("msg.optRunning", "");
+    poll();
+  } catch (e) {
+    msg("#msgopt", `<b>${t("msg.reqFail")}</b><br>${e}`, "err");
+    $("#goopt").disabled = false;
+  }
+};
+
+$("#stopopt").onclick = async () => {
+  if (!S.job) return;
+  await fetch("/api/job/stop", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({id: S.job})
+  });
+  log(t("msg.stopReq"), "warn");
+};
+
+async function poll() {
+  if (!S.job) return;
+  let d;
+  try {
+    const r = await fetch(`/api/job?id=${S.job}&from=${S.lineCount}`);
+    d = await r.json();
+  } catch (e) {
+    pollTimer = setTimeout(poll, 1500);
+    return;
+  }
+  if (!d.ok) return;
+  for (const line of d.lines || []) logAuto(line);
+  S.lineCount = d.total;
+
+  // 进度：分母用**任务自己的**步数，不能用界面上当前的输入框
+  // （刷新页面后输入框可能是默认值 200，而任务其实是 50 步，进度会算错）
+  const st = d.stage || 0;
+  const s1 = d.relax_steps || +$("#optSteps1").value || 200;
+  const s2 = d.cell_steps || +$("#optSteps2").value || 500;
+  let frac = 0.04;
+  if (st >= 1) frac = 0.08 + 0.44 * Math.min(1, d.step / s1);
+  if (st >= 2 && s2 > 0) frac = 0.54 + 0.42 * Math.min(1, d.step / s2);
+  if (st >= 3) frac = 0.96;
+  if (d.status === "done") frac = 1;
+  $("#progFill").style.width = (frac * 100).toFixed(1) + "%";
+  const potName = {qcof:"QCOF", "mace-mp":"MACE-MP+D3", "mace-off":"MACE-OFF23", file:"custom"}[d.potential] || "";
+  $("#progStage").dataset.live = "1";
+  $("#progStage").textContent =
+    (st >= 0 && st <= 3 ? t("stage." + st) : t("stage.running")) +
+    (st >= 1 && st <= 2 ? ` · ` + t("stage.steps", {a: d.step, b: st === 1 ? s1 : s2}) : "") +
+    (potName ? ` · ${potName}` : "");
+  $("#progTime").textContent = d.elapsed + "s";
+
+  if (d.status === "running") {
+    pollTimer = setTimeout(poll, 700);
+    return;
+  }
+
+  // ---- 结束 ----
+  $("#goopt").disabled = false;
+  $("#stopopt").classList.add("hidden");
+  if (d.status === "done" && d.out) {
+    setStatus("status.optDone", "ok");
+    msg("#msgopt", `<b>${t("msg.optDone")}</b> · ${d.out} · ${d.elapsed}s
+      <div style="display:flex;gap:7px;margin-top:9px">
+        <a class="btn btn-primary btn-sm" style="flex:1;text-decoration:none"
+           href="/api/download?f=${encodeURIComponent(d.out)}" download="${d.out}"><span data-i18n="msg.dlCif">${t("msg.dlCif")}</span></a>
+        <button class="btn btn-ghost btn-sm" id="viewOpt" style="flex:1"><span data-i18n="msg.view">${t("msg.view")}</span></button>
+      </div>`, "ok");
+    $("#viewOpt").onclick = async () => {
+      const r = await fetch("/api/struct?f=" + encodeURIComponent(d.out));
+      const p = await r.json();
+      setStruct(p);
+      showDiff(S.before, p);
+    };
+    // 自动加载并做对比：比的是「输入结构」和「优化后结构」，
+    // 不是拿优化后的跟自己比（setStruct 会覆盖 S.before，所以这里要重新取）
+    let before = S.before;
+    try {
+      const rb = await fetch("/api/struct?f=" + encodeURIComponent(d.label + ".cif"));
+      const pb = await rb.json();
+      if (pb.ok) before = pb;
+    } catch (e) {}
+    try {
+      const r = await fetch("/api/struct?f=" + encodeURIComponent(d.out));
+      const p = await r.json();
+      if (p.ok) { setStruct(p); showDiff(before, p); }
+    } catch (e) {}
+    refreshFiles();
+  } else if (d.status === "cancelled") {
+    setStatus("status.stopped", "warn");
+    msg("#msgopt", t("msg.taskStopped"), "warn");
+  } else {
+    setStatus("status.optFail", "err");
+    msg("#msgopt", `<b>${t("msg.optFail")}</b> · ${t("msg.optFailHint")}`, "err");
+  }
+}
+
+function showDiff(a, b) {
+  if (!a || !b || !a.cellpar || !b.cellpar) return;
+  const rows = [
+    [t("diff.a"), a.cellpar[0], b.cellpar[0], 3],
+    [t("diff.c"), a.cellpar[2], b.cellpar[2], 3],
+    [t("diff.rho"), a.density, b.density, 3],
+    [t("diff.dmin"), a.dmin, b.dmin, 3],
+  ];
+  const box = $("#diffBox");
+  box.innerHTML = rows.map(([k, x, y, d]) => {
+    const dv = y - x;
+    const zero = Math.abs(dv) < 0.5 * 10 ** -d;          // 免得出现 "-0.000"
+    return `<div class="diff-row">
+      <span class="k">${k}</span>
+      <span class="v">${x.toFixed(d)} → ${y.toFixed(d)}</span>
+      <span class="d ${zero ? "zero" : ""}">${zero ? "—" : (dv > 0 ? "+" : "") + dv.toFixed(d)}</span>
+    </div>`;
+  }).join("");
+  $("#diffWrap").classList.remove("hidden");
+}
+
+/* ==========================================================================
+   环境
+   ========================================================================== */
+async function loadEnv(force) {
+  $("#dotBuild").className = "dot wait";
+  $("#dotOpt").className = "dot wait";
+  $("#envBody").innerHTML = `<div class="note">${t("env.checking")}</div>`;
+  try {
+    const r = await fetch("/api/env" + (force ? "?force=1" : ""));
+    const d = await r.json();
+    S.env = d;
+    $("#dotBuild").className = "dot " + (d.can_build ? "ok" : "bad");
+    $("#dotOpt").className = "dot " + (d.can_opt ? "ok" : "bad");
+    renderEnv(d);
+    if (!d.can_opt) $("#goopt").disabled = false; // 允许点了给报错，而不是死按钮
+  } catch (e) {
+    $("#envBody").innerHTML = `<div class="note err">${t("env.failMsg", {e: e})}</div>`;
+    showNoBackend();
+  }
+}
+
+/* 只有"根本没连上服务"才提示。后端在、只是某个接口出错时不打扰。 */
+function showNoBackend() {
+  if (document.getElementById("noBackend")) return;
+  const d = document.createElement("div");
+  d.id = "noBackend";
+  d.className = "no-backend";
+  d.innerHTML =
+    `<span class="x" title="×">×</span>` + t("noBackend.html");
+  d.querySelector(".x").onclick = () => d.remove();
+  document.body.appendChild(d);
+}
+
+function pkgTable(pk, need) {
+  return `<div class="pkg">` + need.map(m => {
+    const v = pk[m];
+    return `<span class="n">${m}</span><span class="v ${v?'':'no'}">${v || t("env.missing")}</span>`;
+  }).join("") + `</div>`;
+}
+
+function renderEnv(d) {
+  const b = d.build, o = d.opt;
+  const block = (title, info, need, ok) => `
+    <div class="note ${ok?'ok':'err'}" style="margin-bottom:9px">
+      <b>${title}</b> · ${ok ? t("env.ready") : t("env.missingDeps")}
+      <div style="font-family:ui-monospace,Consolas,monospace;font-size:11px;margin-top:3px;opacity:.85;word-break:break-all">${info.exe}</div>
+      ${info.python !== "?" ? `<div style="font-size:11px;margin-top:2px;opacity:.75">Python ${info.python}${info.device && info.device !== "-" ? " · " + info.device : ""}</div>` : ""}
+      ${info.error ? `<div style="font-size:11px;margin-top:4px;color:#a52020">${info.error}</div>` : ""}
+    </div>
+    ${pkgTable(info.packages || {}, need)}`;
+  $("#envBody").innerHTML =
+    block(t("env.buildEnv"), b, ["numpy","ase","rdkit"], d.can_build) +
+    `<div style="height:12px"></div>` +
+    block(t("env.optEnv"), o, ["numpy","ase","torch","mace"], d.can_opt) +
+    (d.same_interp
+      ? `<div class="note" style="margin-top:12px">${t("env.sameInterp")}</div>`
+      : `<div class="note" style="margin-top:12px">${t("env.separated")}</div>`);
+}
+
+async function loadCfg() {
+  const r = await fetch("/api/config");
+  const d = await r.json();
+  $("#cfgPyBuild").value = d.config.py_build || "";
+  $("#cfgPyOpt").value = d.config.py_opt || "";
+  $("#cfgEng3d").value = d.config.engine_build_3d || "";
+  $("#cfgEng2d").value = d.config.engine_build_2d || "";
+  $("#cfgEngOpt").value = d.config.engine_opt || "";
+  $("#cfgUpdate").value = d.config.update_url || "";
+}
+
+$("#btnEnv").onclick = $("#envBuild").onclick = $("#envOpt").onclick = () => {
+  $("#envModal").classList.add("on");
+  loadCfg();
+};
+$("#envClose").onclick = () => $("#envModal").classList.remove("on");
+$("#envModal").onclick = e => { if (e.target.id === "envModal") e.currentTarget.classList.remove("on"); };
+$("#envRecheck").onclick = () => loadEnv(true);
+$("#envSave").onclick = async () => {
+  const body = {
+    py_build: $("#cfgPyBuild").value,
+    py_opt: $("#cfgPyOpt").value,
+    engine_build_3d: $("#cfgEng3d").value,
+    engine_build_2d: $("#cfgEng2d").value,
+    engine_opt: $("#cfgEngOpt").value,
+    update_url: $("#cfgUpdate").value.trim(),
+  };
+  const r = await fetch("/api/config", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(body)
+  });
+  const d = await r.json();
+  if (d.ok) {
+    $("#envModal").classList.remove("on");
+    log(t("msg.cfgSaved"), "hi");
+    loadEnv(true);
+  }
+};
+
+/* ==========================================================================
+   版本与更新
+   两级：补丁只换 ui.html / engines/（几百 KB，刷新即生效）；
+        整包要换 exe，得退出进程让外部批处理改目录，所以走"下载 → 重启安装"。
+   ========================================================================== */
+function updSay(key, vars, cls) {
+  S.updMsg = key ? { key, vars, cls } : null;
+  const el = $("#updMsg");
+  el.textContent = key ? t(key, vars) : "";
+  el.className = "note" + (cls ? " " + cls : "");
+}
+
+async function loadVersion() {
+  try {
+    const d = await (await fetch("/api/version", { cache: "no-store" })).json();
+    S.ver = d.version || "";
+    $("#curVer").textContent = "v" + S.ver + (d.frozen ? "" : " (dev)");
+    if (!$("#cfgUpdate").value) $("#cfgUpdate").value = d.update_url || "";
+    if (d.update_failed) log(t("upd.lastFail"), "warn");
+  } catch (e) { /* 直接双击 ui.html 时没有后端 */ }
+}
+
+$("#btnCheckUpd").onclick = async () => {
+  const src = $("#cfgUpdate").value.trim();
+  if (!src) { updSay("upd.srcEmpty", null, "warn"); return; }
+  // 顺手把更新源存下来，免得每次都要重填
+  fetch("/api/config", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ update_url: src }),
+  }).catch(() => {});
+  updSay("upd.checking");
+  $("#btnCheckUpd").disabled = true;
+  try {
+    const d = await (await fetch("/api/update/check", { method: "POST" })).json();
+    if (!d.ok) { updSay("upd.fail", { e: d.error || "?" }, "warn"); return; }
+    S.upd.idx = d;
+    S.upd.staged = false;
+    $("#btnFullUpd").textContent = t("upd.full");
+    $("#btnFullUpd").className = "btn btn-ghost btn-sm hidden";
+    if (!d.newer) {
+      updSay("upd.none", { v: d.latest });
+      $("#btnPatchUpd").classList.add("hidden");
+      return;
+    }
+    updSay("upd.found", { v: d.latest, date: d.date || "" });
+    // 源码模式下不接受在线更新：会改到正在开发的文件
+    const canPatch = d.has_patch && d.can_apply;
+    $("#btnPatchUpd").classList.toggle("hidden", !canPatch);
+    $("#btnFullUpd").classList.toggle("hidden", !(d.has_full && d.can_apply));
+    if (!d.can_apply) log(t("upd.devMode"), "warn");
+    else if (!d.has_patch) log(t("upd.noPatch"), "warn");
+  } catch (e) {
+    updSay("upd.fail", { e: String(e) }, "warn");
+  } finally {
+    $("#btnCheckUpd").disabled = false;
+  }
+};
+
+$("#btnPatchUpd").onclick = async () => {
+  const b = $("#btnPatchUpd");
+  b.disabled = true;
+  updSay("upd.applying");
+  try {
+    const d = await (await fetch("/api/update/apply", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "patch" }),
+    })).json();
+    if (!d.ok) { updSay("upd.fail", { e: d.error || "?" }, "warn"); return; }
+    S.ver = d.version || S.ver;
+    $("#curVer").textContent = "v" + S.ver;
+    $("#btnPatchUpd").classList.add("hidden");
+    $("#btnFullUpd").classList.add("hidden");
+    updSay("upd.patched", { v: d.version });
+    log(`[update] ${d.files} file(s) → v${d.version}`, "ok");
+  } catch (e) {
+    updSay("upd.fail", { e: String(e) }, "warn");
+  } finally { b.disabled = false; }
+};
+
+$("#btnFullUpd").onclick = async () => {
+  const b = $("#btnFullUpd");
+  const installing = S.upd.staged;          // 第二次点 = 换目录重启
+  const mode = installing ? "install" : "stage";
+  b.disabled = true;
+  updSay(installing ? "upd.installed" : "upd.staging");
+  try {
+    const d = await (await fetch("/api/update/apply", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode }),
+    })).json();
+    if (!d.ok) { updSay("upd.fail", { e: d.error || "?" }, "warn"); return; }
+    if (mode === "stage") {
+      S.upd.staged = true;
+      b.textContent = t("upd.install");
+      b.className = "btn btn-primary btn-sm";
+      updSay("upd.staged");
+    } else {
+      // 后端 2 秒后自己退出，批处理等进程消失再换目录、重启。
+      // 端口可能短暂连不上，所以轮询而不是定时刷新。
+      (async () => {
+        for (let i = 0; i < 60; i++) {
+          await new Promise(r => setTimeout(r, 1000));
+          try {
+            const r = await fetch("/api/version", { cache: "no-store" });
+            if (r.ok) { location.reload(); return; }
+          } catch (e) { /* 还在换目录 */ }
+        }
+        updSay("upd.fail", { e: "timeout" }, "warn");
+      })();
+    }
+  } catch (e) {
+    updSay("upd.fail", { e: String(e) }, "warn");
+  } finally { b.disabled = false; }
+};
+
+/* ==========================================================================
+   其它按钮
+   ========================================================================== */
+$("#btnClear").onclick = () => { logEl.innerHTML = ""; };
+$("#btnOpen").onclick = async () => {
+  const r = await fetch("/api/reveal", {method:"POST"});
+  const d = await r.json();
+  if (!d.ok) log(t("msg.openFail") + (d.error || ""), "err");
+};
+
+/* ==========================================================================
+   启动
+   ========================================================================== */
+resize();
+loop();
+loadEnv(false);
+loadVersion();
+refreshFiles();
+onPotChange();
+log(t("msg.ready"), "hi");
+
+// ?tab=opt / ?tab=2d 直接落到某个页签；没有参数就回到 2D 建模
+(function tabFromUrl() {
+  const t = new URLSearchParams(location.search).get("tab");
+  setTab(t && ["2d", "3d", "opt"].includes(t) ? t : "2d");
+})();
+
+// 页面刷新后把正在跑的任务接回来（不然日志断在半路，还会以为任务没了）
+async function attachJob(jid) {
+  const rj = await fetch(`/api/job?id=${jid}&from=0`);
+  const dj = await rj.json();
+  if (!dj.ok) return;
+  await setTab("opt");
+  S.job = dj.id; S.lineCount = 0; t0 = performance.now();
+  // 把下拉框对齐到任务实际用的参数，否则界面显示 A、实际跑的是 B
+  if (dj.potential && document.querySelector(`#optPot option[value="${dj.potential}"]`)) {
+    $("#optPot").value = dj.potential; onPotChange();
+  }
+  if (dj.dimension) $("#optDim").value = dj.dimension;
+  if (dj.relax_steps) $("#optSteps1").value = dj.relax_steps;
+  if (dj.cell_steps) $("#optSteps2").value = dj.cell_steps;
+  if (dj.no_cell) $("#optNoCell").checked = true;
+  if ($("#optFile")) $("#optFile").value = dj.label + ".cif";
+  if (dj.status === "running") {
+    $("#goopt").disabled = true;
+    $("#stopopt").classList.remove("hidden");
+    log(t("msg.attached", {id: dj.id, label: dj.label, t: dj.elapsed}), "hi");
+    setStatus("status.attached", "");
+  } else {
+    log(t("msg.ended", {id: dj.id, label: dj.label, status: dj.status}), "hi");
+    setStatus("status.ended", dj.status === "done" ? "ok" : "err", {s: dj.status});
+    for (const l of dj.lines || []) logAuto(l);
+    S.lineCount = dj.total;
+  }
+  $("#progWrap").classList.remove("hidden");
+  // 顺手把结构显示出来，不然画布一直空着
+  try {
+    const f = dj.status === "done" && dj.out ? dj.out : dj.label + ".cif";
+    const r2 = await fetch("/api/struct?f=" + encodeURIComponent(f));
+    const p = await r2.json();
+    if (p.ok) setStruct(p);
+  } catch (e) {}
+  poll();
+}
+
+async function attachRunning() {
+  try {
+    const r = await fetch("/api/jobs");
+    const d = await r.json();
+    const all = d.jobs || [];
+    const run = all.filter(j => j.status === "running");
+    if (run.length) {
+      await attachJob(run[run.length - 1].id);
+      return;
+    }
+    // ?j=j3 可以直接打开某个已结束任务的日志和结果
+    const want = new URLSearchParams(location.search).get("j");
+    if (want && all.some(j => j.id === want)) await attachJob(want);
+  } catch (e) { /* 没跑就算 */ }
+}
+attachRunning();
+
+// ?f=<文件名> 直接打开 work/ 里的结构（方便分享一个具体结果）
+(function openFromUrl() {
+  const f = new URLSearchParams(location.search).get("f");
+  if (!f) return;
+  fetch("/api/struct?f=" + encodeURIComponent(f))
+    .then(r => r.json())
+    .then(p => {
+      if (!p.ok) { log(t("msg.loadFail", {f}), "err"); return; }
+      S.last = p;
+      setStruct(p);
+      setStatus("status.loaded", "ok", {f});
+      log(t("msg.loaded", {f, n: p.n_unit, formula: p.formula}), "hi");
+    })
+    .catch(() => {});
+})();
+
+})();
+</script>
+</body>
+</html>

@@ -170,9 +170,12 @@ DEFAULT_CONFIG = {
     # 预填发布者的更新源，装完不用手输地址就能"检查更新"。
     # 想换成局域网镜像，在 设置 → 版本与更新 里改（可填多个，换行分隔）。
     "update_url": "https://github.com/1783722112/COF-Studio/releases/latest/download",
+    # 网页版跨域白名单：允许从哪些源（网页界面所在地址）访问本机引擎。
+    # 留空 = 不限制。示例："https://cof.example.com;http://localhost:8890"
+    "cors_origins": "",
 }
 
-APP_VERSION = "1.3.5"
+APP_VERSION = "1.6.2"
 
 # 这几个才是路径，load_config 的"路径还活着吗"自愈只该管它们。
 PATH_KEYS = ("engine_build_3d", "engine_build_2d", "engine_opt", "engine_stack",
@@ -1690,6 +1693,33 @@ class Handler(BaseHTTPRequestHandler):
         if getattr(self.server, "verbose", False):
             sys.stderr.write("  %s - %s\n" % (self.address_string(), fmt % args))
 
+    # ---------- 跨域 ----------
+    # 网页版架构：界面托管在服务器/静态页上，计算走访问者本机引擎。
+    # 浏览器从别的源访问 http://127.0.0.1:8770 需要 CORS 放行；
+    # HTTPS 页面 → 本机 HTTP 服务还会触发 Private Network Access 预检，
+    # 引擎必须回答 Access-Control-Allow-Private-Network: true，否则 Chrome 拦截。
+    # cors_origins 留空 = 不限制（*）；填了源列表（分号/换行分隔）就只放行这些源。
+    def _cors_origin(self) -> str:
+        allow = (CFG.get("cors_origins") or "").strip()
+        if not allow:
+            return "*"
+        allowed = [x.strip().rstrip("/") for x in re.split(r"[;\r\n]+", allow)
+                   if x.strip()]
+        origin = (self.headers.get("Origin") or "").rstrip("/")
+        return origin if origin and origin in allowed else ""
+
+    def _cors_headers(self) -> dict:
+        h = {
+            "Access-Control-Allow-Origin": self._cors_origin(),
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type",
+            "Access-Control-Expose-Headers": "Content-Disposition",
+            "Access-Control-Max-Age": "600",
+            "Access-Control-Allow-Private-Network": "true",
+            "Vary": "Origin",
+        }
+        return {k: v for k, v in h.items() if v}
+
     # ---------- 工具 ----------
     def _send(self, code, body: bytes, ctype: str, extra=None):
         try:
@@ -1697,6 +1727,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
+            for k, v in self._cors_headers().items():
+                self.send_header(k, v)
             for k, v in (extra or {}).items():
                 self.send_header(k, v)
             self.end_headers()
@@ -1704,6 +1736,10 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             # 浏览器提前关了连接（刷新页面、切页签）属正常，不该在日志里刷堆栈
             pass
+
+    def do_OPTIONS(self):
+        # CORS 预检：网页版界面（别的源）发 POST /api/xrd 前浏览器会先来这一手
+        self._send(204, b"", "text/plain")
 
     def _json(self, obj, code=200):
         self._send(code, json.dumps(obj, ensure_ascii=False).encode("utf-8"),
@@ -1761,7 +1797,14 @@ class Handler(BaseHTTPRequestHandler):
                                    "built": APP_VERSION,
                                    "frozen": FROZEN,
                                    "update_failed": _failed,
-                                   "update_url": CFG.get("update_url") or ""})
+                                   "update_url": CFG.get("update_url") or "",
+                                   # 网页版界面按这份清单做特性检测：
+                                   # 引擎有什么接口，页面就亮什么功能。
+                                   "capabilities": [
+                                       "build2d", "build3d", "xrd",
+                                       "xrd_dstack", "xrd_fixvacuum",
+                                       "opt", "stack", "update",
+                                   ]})
             if path == "/api/config":
                 return self._json({"config": CFG,
                                    "engines": {k: str(engine_path(k))
