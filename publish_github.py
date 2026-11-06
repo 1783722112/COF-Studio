@@ -86,7 +86,10 @@ def api(method: str, path: str, body=None, ok=(200, 201), raw: bytes = None,
 
 
 def git(*args, check=True):
-    return subprocess.run(["git"] + list(args), cwd=str(HERE), check=check,
+    # core.quotepath=false：中文文件名不能让它转成 "\344\275\277..."，
+    # 否则 ls-files 拿到的路径在磁盘上根本找不到（会把已有文件当成删除）。
+    return subprocess.run(["git", "-c", "core.quotepath=false"] + list(args),
+                          cwd=str(HERE), check=check,
                           capture_output=True, text=True, encoding="utf-8",
                           errors="replace")
 
@@ -168,6 +171,11 @@ def push_source_api(repo: str, ver: str) -> None:
               f"{len(data) / 1024:.0f} KB")
 
     for path in sorted(set(remote) - set(tracked)):
+        if (HERE / path).is_file():
+            # 本地明明还在却没被跟踪（多半是路径编码没对上）——
+            # 宁可少删，也别把远程的文件删掉
+            print(f"  ! {path} 本地存在但未被跟踪，跳过删除")
+            continue
         entries.append({"path": path, "mode": "100644", "type": "blob",
                         "sha": None})
         print(f"  − {path}")
